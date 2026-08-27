@@ -1,0 +1,227 @@
+```json
+{
+  "a": [
+    {
+      "type": "disability accommodations",
+      "quote": "For disability accommodations, materials in alternate formats, accessibility information, or language interpretation or translation needs, please contact the Office of the City Clerk"
+    },
+    {
+      "type": "materials in alternate formats",
+      "quote": "materials in alternate formats"
+    },
+    {
+      "type": "language interpretation",
+      "quote": "language interpretation or translation needs"
+    },
+    {
+      "type": "TTY relay",
+      "quote": "TTY Relay 7-1-1"
+    },
+    {
+      "type": "sign language interpreting",
+      "quote": "sign language interpreting requests may take longer"
+    },
+    {
+      "type": "advance notice requirement",
+      "quote": "Providing at least 72-hour notice will help ensure availability"
+    }
+  ]
+}
+```
+City Council (seattle)
+  OK         disability accommodati | For disability accommodations, materials in alternate f
+  OK         materials in alternate | materials in alternate formats
+  OK         language interpretatio | language interpretation or translation needs
+  OK         TTY relay              | TTY Relay 7-1-1
+  OK         sign language interpre | sign language interpreting requests may take longer
+  OK         advance notice require | Providing at least 72-hour notice will help ensure avai
+```json
+{
+  "a": [
+    {
+      "type": "Remote participation option",
+      "quote": "Members of the public can comment on agenda items in person or remotely via Zoom"
+    },
+    {
+      "type": "Telephone participation option",
+      "quote": "For Telephone Participants: Zoom Phone Number: 669-900-9128 Zoom Meeting ID: 891 6083 3355"
+    },
+    {
+      "type": "Reasonable accommodations request process",
+      "quote": "Any requests for reasonable accommodations should be made by completing an online form: https://us.openforms.com/Form/7e338354-7abf-4852-886d-229f8c7019b9"
+    }
+  ]
+}
+```
+City Council (alameda)
+  OK         Remote participation o | Members of the public can comment on agenda items in pe
+  OK         Telephone participatio | For Telephone Participants: Zoom Phone Number: 669-900-
+  OK         Reasonable accommodati | Any requests for reasonable accommodations should be ma
+```json
+{
+  "a": [
+    {
+      "type": "Sign language interpretation",
+      "quote": "Sign language interpreters will be available upon request. Please contact Base Reuse and Economic Development at 747-6890 at least 24 hours before the meeting to request an interpreter."
+    },
+    {
+      "type": "Accessible seating",
+      "quote": "Accessible seating for persons with disabilities (including those using wheelchairs) is available."
+    },
+    {
+      "type": "Enlarged print minutes",
+      "quote": "Minutes of the meeting are available in enlarged print."
+    },
+    {
+      "type": "Meeting recording",
+      "quote": "Recording of the meeting are available upon request."
+    },
+    {
+      "type": "Remote participation",
+      "quote": "Members of the public can participate in person or remotely via Zoom"
+    },
+    {
+      "type": "Reasonable accommodations process",
+      "quote": "Any requests for reasonable accommodations should be made by contacting Base Reuse and Economic Development"
+    },
+    {
+      "type": "Chemical sensitivity accommodation",
+      "quote": "In order to assist the City's efforts to accommodate persons with severe allergies, environmental illnesses, multiple chemical sensitivity or related disabilities, attendees at public meetings are reminded that other attendees may be sensitive to various chemical based products."
+    }
+  ]
+}
+```
+Mayor's Economic Development Advisory Pa (alameda)
+  OK         Sign language interpre | Sign language interpreters will be available upon reque
+  OK         Accessible seating     | Accessible seating for persons with disabilities (inclu
+  OK         Enlarged print minutes | Minutes of the meeting are available in enlarged print.
+  OK         Meeting recording      | Recording of the meeting are available upon request.
+  OK         Remote participation   | Members of the public can participate in person or remo
+  OK         Reasonable accommodati | Any requests for reasonable accommodations should be ma
+  UNGROUNDED Chemical sensitivity a | In order to assist the City's efforts to accommodate pe
+```json
+{
+  "a": [
+    {
+      "type": "Physical accessibility for mobility disabilities",
+      "quote": "Accessible seating for persons with disabilities, including those using wheelchairs, is available"
+    },
+    {
+      "type": "Hearing assistance",
+      "quote": "Equipment for the hearing impaired is available for public use"
+    },
+    {
+      "type": "Language interpretation",
+      "quote": "Translators will be available upon request by contacting the Planning Division: planning@alamedaca.gov or 510.747.6805 at least 48 hours prior to the meeting"
+    },
+    {
+      "type": "General reasonable accommodations process",
+      "quote": "To request any reasonable accommodation that may be necessary to participate in and enjoy the benefits of the meeting, please complete an online form: https://us.openforms.com/Form/7e338354-7abf-4852-886d-229f8c7019b9"
+    },
+    {
+      "type": "Closed captioning",
+      "quote": "Closed captioning is available via Zoom live or after meetings at: https://www.youtube.com/cityofalameda"
+    },
+    {
+      "type": "Chemical sensitivity accommodation",
+      "quote": "In order to assist the City's efforts to accommodate persons with severe allergies, environmental illnesses, multiple chemical sensitivity or related disabilities, attendees at public meetings are reminded that other attendees may be sensitive to various chemical based products."
+    }
+  ]
+}
+```
+Historical Advisory Board (alameda)
+  OK         Physical accessibility | Accessible seating for persons with disabilities, inclu
+  OK         Hearing assistance     | Equipment for the hearing impaired is available for pub
+  OK         Language interpretatio | Translators will be available upon request by contactin
+  OK         General reasonable acc | To request any reasonable accommodation that may be nec
+  OK         Closed captioning      | Closed captioning is available via Zoom live or after m
+  UNGROUNDED Chemical sensitivity a | In order to assist the City's efforts to accommodate pe
+```json
+{
+  "a": [
+    {
+      "type": "wheelchair accessibility",
+      "quote": "Accessible seating for persons with disabilities, including those using wheelchairs, is available"
+    },
+    {
+      "type": "interpretation services",
+      "quote": "Translators will be available upon request by contacting the Recreation and Parks Department at (510) 747-7529 or arpd@alamedaca.gov at least 48 hours before the meeting"
+    },
+    {
+      "type": "reasonable accommodations request process",
+      "quote": "To request any reasonable accommodation that may be necessary to participate in and enjoy the benefits of the meeting, please complete an online form: https://us.openforms.com/Form/7e338354-7abf-4852-886d-229f8c7019b9"
+    },
+    {
+      "type": "closed captioning",
+      "quote": "Closed captioning is available via Zoom live or after meetings at: https://www.youtube.com/cityofalameda"
+    },
+    {
+      "type": "chemical sensitivity accommodation",
+      "quote": "In order to assist the City's efforts to accommodate persons with severe allergies, environmental illnesses, multiple chemical sensitivity or related disabilities, attendees at public meetings are reminded that other attendees may be sensitive to various chemical based products."
+    }
+  ]
+}
+```
+Golf Commission (alameda)
+  OK         wheelchair accessibili | Accessible seating for persons with disabilities, inclu
+  OK         interpretation service | Translators will be available upon request by contactin
+  OK         reasonable accommodati | To request any reasonable accommodation that may be nec
+  OK         closed captioning      | Closed captioning is available via Zoom live or after m
+  UNGROUNDED chemical sensitivity a | In order to assist the City's efforts to accommodate pe
+```json
+{
+  "a": [
+    {
+      "type": "Language Access - Live Translation",
+      "quote": "For live translations in over 50 languages, please go to https://attend.wordly.ai/join/FAYU-7105"
+    },
+    {
+      "type": "Language Access - Translated Agenda",
+      "quote": "City Council Agendas Translated by Members of the Public"
+    },
+    {
+      "type": "Alternative Format - ADA",
+      "quote": "To request an alternative format agenda under the Americans with Disabilities Act for City-sponsored meetings, events or printer materials, please call (408) 535-1260 as soon as possible, but at least three business days before the meeting."
+    },
+    {
+      "type": "Disability Accommodations",
+      "quote": "Any member of the public who needs accommodations should email the ADA Coordinator at ADA@sanjoseca.gov or by calling (408) 535-8430."
+    },
+    {
+      "type": "Hybrid Access - Virtual",
+      "quote": "Hybrid Meeting - Council Chambers and Virtually - https://sanjoseca.zoom.us/j/98221474336"
+    },
+    {
+      "type": "Video Access - Cable",
+      "quote": "Cable Channel 24"
+    },
+    {
+      "type": "Video Access - YouTube",
+      "quote": "https://youtube.com/CityofSanJoseCalifornia"
+    },
+    {
+      "type": "Phone Access - Public Comment",
+      "quote": "By Phone: (888) 475 4499. Webinar ID is 982 2147 4336. Alternative phone numbers are: US: +1 (213) 338 8477 or +1 (408) 638 0968 or (877) 853 5257 (Toll Free)"
+    },
+    {
+      "type": "Visual Aid - Speaking Time Display",
+      "quote": "To assist you in tracking your speaking time, there is a display on the podium and on the screen above you."
+    }
+  ]
+}
+```
+City Council (sanjose)
+  OK         Language Access - Live | For live translations in over 50 languages, please go t
+  OK         Language Access - Tran | City Council Agendas Translated by Members of the Publi
+  OK         Alternative Format - A | To request an alternative format agenda under the Ameri
+  OK         Disability Accommodati | Any member of the public who needs accommodations shoul
+  OK         Hybrid Access - Virtua | Hybrid Meeting - Council Chambers and Virtually - https
+  OK         Video Access - Cable   | Cable Channel 24
+  OK         Video Access - YouTube | https://youtube.com/CityofSanJoseCalifornia
+  OK         Phone Access - Public  | By Phone: (888) 475 4499. Webinar ID is 982 2147 4336. 
+  OK         Visual Aid - Speaking  | To assist you in tracking your speaking time, there is 
+
+============================================================
+DISTINCT PROFILES : 6 of 6
+GROUNDED          : 33/36 = 92%
+============================================================

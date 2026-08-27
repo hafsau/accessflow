@@ -1,0 +1,152 @@
+{
+  "total_analyzed": 10,
+  "by_priority": {
+    "HIGH": 3,
+    "MEDIUM": 4,
+    "LOW": 3
+  },
+  "accommodation_frequency": {
+    "ASL_INTERPRETER": 7,
+    "CART": 7,
+    "SPANISH_INTERPRETER": 8,
+    "ASSISTIVE_LISTENING": 7,
+    "LARGE_PRINT": 5,
+    "REMOTE_ACCESS": 8,
+    "OTHER_LANGUAGE": 3
+  },
+  "analyses": [
+    {
+      "key": "seattle:6860",
+      "body": "City Council",
+      "priority": "LOW",
+      "accommodations": [],
+      "reasoning": "The meeting scheduled for September 8, 2026 has been cancelled, making accommodation planning moot at this time. However, the agenda document itself demonstrates the City's accessibility framework by prominently featuring accommodation request procedures (72-hour notice, TTY relay, multiple contact methods, sign language interpreter availability). For future City Council meetings of this type, typical accommodations would include ASL_INTERPRETER, CART, SPANISH_INTERPRETER, and REMOTE_ACCESS given Seattle's demographics and the public nature of council proceedings. Since this specific meeting is cancelled, no active accommodations are needed for this date.",
+      "page_count": 2
+    },
+    {
+      "key": "alameda:6393",
+      "body": "City Council",
+      "priority": "MEDIUM",
+      "accommodations": [
+        "ASL_INTERPRETER",
+        "CART",
+        "SPANISH_INTERPRETER",
+        "ASSISTIVE_LISTENING",
+        "LARGE_PRINT",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "This is a regular City Council meeting with public comment opportunity on agenda items. While the agenda shown focuses on closed session real property negotiations (lower accessibility priority), the regular meeting session that follows will likely contain items requiring broad accessibility. The meeting explicitly allows remote participation via Zoom and has a public comment process, indicating community input is expected. Alameda has a significant Spanish-speaking population warranting interpreter services. The proactive accommodation request form and multiple access channels (Zoom, phone, in-person) indicate awareness of accessibility needs. Priority is MEDIUM rather than HIGH because the visible agenda items are primarily real property negotiations and consent items, though full agenda context would be needed for complete assessment.",
+      "page_count": 10
+    },
+    {
+      "key": "alameda:6495",
+      "body": "Mayor's Economic Development Advisory Panel/Economic Recovery Task Force",
+      "priority": "MEDIUM",
+      "accommodations": [
+        "ASL_INTERPRETER",
+        "CART",
+        "SPANISH_INTERPRETER",
+        "ASSISTIVE_LISTENING",
+        "LARGE_PRINT",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "This is a public advisory body meeting with community input opportunity (Item 4: Oral Communications) and substantive discussion of economic development strategy (Item 6A). While not a formal public hearing, the agenda includes public comment periods and decisions affecting community economic development, warranting comprehensive accessibility provisions. The meeting already mentions some accommodations (ASL, large print, accessible seating) but lacks CART and assistive listening system specificity. Alameda is a diverse Bay Area community with significant Spanish-speaking population, supporting Spanish interpreter need. Remote access via Zoom is available. Priority is MEDIUM rather than HIGH because this is an advisory panel (not decision-making authority) focused on strategic planning rather than immediate equity-impacting decisions like housing or services.",
+      "page_count": 2
+    },
+    {
+      "key": "alameda:6518",
+      "body": "Historical Advisory Board",
+      "priority": "HIGH",
+      "accommodations": [
+        "ASL_INTERPRETER",
+        "CART",
+        "SPANISH_INTERPRETER",
+        "ASSISTIVE_LISTENING",
+        "LARGE_PRINT",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "This meeting includes a public hearing on a controversial historical preservation issue (demolition of a pre-1942 building) that affects community character and involves property redevelopment. The agenda explicitly allows public comment and the HAB will conduct a 'duly noticed public hearing.' Alameda has a significant Spanish-speaking population (LEP area), warranting Spanish interpreter availability. The complex structural and historical evaluations benefit from CART for accurate information access. Multiple accommodation types are already mentioned in the agenda (hearing impaired equipment, translators available, accessible seating), indicating the city recognizes accommodation needs. Remote access via Zoom is already offered. ASL interpretation and large print materials are standard for public hearings with community input.",
+      "page_count": 3
+    },
+    {
+      "key": "alameda:6418",
+      "body": "Golf Commission",
+      "priority": "LOW",
+      "accommodations": [],
+      "reasoning": "The meeting is cancelled, so no accommodations are needed for this specific date. However, the agenda demonstrates that the City of Alameda has established accessibility infrastructure for Golf Commission meetings generally, including wheelchair access, translator services (48-hour notice), closed captioning via Zoom/YouTube, and a reasonable accommodation request form. Since no meeting is occurring on 2026-09-08, there are no immediate accommodation requirements for this agenda item.",
+      "page_count": 1
+    },
+    {
+      "key": "sanjose:8102",
+      "body": "City Council",
+      "priority": "HIGH",
+      "accommodations": [
+        "ASL_INTERPRETER",
+        "CART",
+        "SPANISH_INTERPRETER",
+        "OTHER_LANGUAGE",
+        "ASSISTIVE_LISTENING",
+        "LARGE_PRINT",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "This is a City Council meeting with hybrid access (in-person and virtual), indicating significant public participation expected. The agenda explicitly provides language access in 50+ languages and references translated agendas, indicating high diversity and LEP population. The meeting involves elected officials and likely policy decisions affecting the public. Multiple accommodation types are already being offered (Wordly translation service, language access page, ADA coordinator contact), suggesting this jurisdiction recognizes diverse accessibility needs. The hybrid format requires robust remote access infrastructure. Given the public governance nature, community input likelihood, and existing multilingual support, comprehensive accessibility accommodations across multiple disability types should be provided.",
+      "page_count": 17
+    },
+    {
+      "key": "mountainview:3528",
+      "body": "Rental Housing Committee",
+      "priority": "HIGH",
+      "accommodations": [
+        "ASL_INTERPRETER",
+        "CART",
+        "SPANISH_INTERPRETER",
+        "OTHER_LANGUAGE",
+        "ASSISTIVE_LISTENING",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "Rental Housing Committee meetings involve policy decisions directly affecting housing access and affordability\u2014a high-equity issue. The agenda already demonstrates strong accessibility commitment by offering Spanish, Chinese, and AI translation services, plus virtual participation. However, critical gaps remain: no ASL interpreter or CART (live captioning) are mentioned, both essential for Deaf/hard-of-hearing participants. The multi-lingual community served and public input nature of housing committees warrant comprehensive accommodation. Remote access is already provided but should be maintained as an accommodation type.",
+      "page_count": 4
+    },
+    {
+      "key": "mountainview:3385",
+      "body": "Council Transportation Committee",
+      "priority": "LOW",
+      "accommodations": [
+        "SPANISH_INTERPRETER",
+        "OTHER_LANGUAGE",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "The meeting is CANCELED, making accommodation planning moot for this date. However, the document demonstrates the city's established accessibility infrastructure: Spanish and Chinese interpretation via Zoom are proactively offered for future meetings. The city has clear processes for requesting language access (phone/email, 2 business days notice). Since this is a transportation committee agenda (typically routine business rather than high-impact public hearings), priority is LOW. Remote access via Zoom is already standard. The document itself is multilingual, showing commitment to LEP communities. No indication of need for ASL, CART, large print, Braille, or extended time based on the cancellation notice format.",
+      "page_count": 1
+    },
+    {
+      "key": "denver:12898",
+      "body": "Finance and Business",
+      "priority": "MEDIUM",
+      "accommodations": [
+        "ASL_INTERPRETER",
+        "CART",
+        "SPANISH_INTERPRETER",
+        "ASSISTIVE_LISTENING",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "This is a routine Finance and Business Committee meeting with a consent agenda (no public hearing indicated). However, standard accessibility accommodations should be provided for all public meetings. The agenda includes funding agreements for cultural institutions and housing/homelessness services, which have community interest. Remote access is already offered via Zoom. While not HIGH priority due to the procedural nature of consent items, MEDIUM priority is appropriate for a public city meeting to ensure equitable access for disabled residents and Spanish-speaking constituents in Denver's diverse community.",
+      "page_count": 2
+    },
+    {
+      "key": "kingcounty:12755",
+      "body": "Metropolitan King County Council",
+      "priority": "MEDIUM",
+      "accommodations": [
+        "ASL_INTERPRETER",
+        "CART",
+        "SPANISH_INTERPRETER",
+        "ASSISTIVE_LISTENING",
+        "LARGE_PRINT",
+        "REMOTE_ACCESS"
+      ],
+      "reasoning": "This is a work session/special meeting with routine procedural items (call to order, roll call, minutes approval) rather than a public hearing or community input session. However, as a public county council meeting with hybrid access already offered, standard accessibility accommodations should be provided. The agenda is brief and procedural in nature, reducing complexity needs, but the public nature of the meeting and King County's diverse, high-LEP population warrant Spanish interpretation and multiple disability accommodations. Remote access is already planned. BRAILLE and EXTENDED_TIME are less critical for a procedural work session agenda.",
+      "page_count": 2
+    }
+  ]
+}

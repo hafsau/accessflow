@@ -1,0 +1,11 @@
+.env
+.env.local
+*.pem
+.aws/
+.budget.json
+feed-measure.jsonl
+__pycache__/
+.venv/
+node_modules/
+.DS_Store
+poller.pid

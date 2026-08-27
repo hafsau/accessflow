@@ -1,0 +1,146 @@
+{
+  "agreement": 2,
+  "total": 20,
+  "rows": [
+    [
+      1,
+      "City Council",
+      "REPLAN",
+      "WAIT",
+      "DIFFERS"
+    ],
+    [
+      2,
+      "City Council",
+      "COORDINATE",
+      "COORDINATE",
+      "DIFFERS"
+    ],
+    [
+      3,
+      "Mayor's Economic Development Advis",
+      "COORDINATE",
+      "COORDINATE",
+      "DIFFERS"
+    ],
+    [
+      4,
+      "Historical Advisory Board",
+      "COORDINATE",
+      "COORDINATE",
+      "DIFFERS"
+    ],
+    [
+      5,
+      "Golf Commission",
+      "REPLAN",
+      "WAIT",
+      "DIFFERS"
+    ],
+    [
+      6,
+      "Public Utilities Board",
+      "WAIT",
+      "COORDINATE",
+      "DIFFERS"
+    ],
+    [
+      7,
+      "Appeals Hearing Board",
+      "REPLAN",
+      "WAIT",
+      "DIFFERS"
+    ],
+    [
+      8,
+      "Miscellaneous Agendas",
+      "WAIT",
+      "COORDINATE",
+      "DIFFERS"
+    ],
+    [
+      9,
+      "Miscellaneous Agendas",
+      "WAIT",
+      "REPLAN",
+      "DIFFERS"
+    ],
+    [
+      10,
+      "Bicycle Pedestrian Advisory Commit",
+      "WAIT",
+      "REPLAN",
+      "DIFFERS"
+    ],
+    [
+      11,
+      "Miscellaneous Agendas",
+      "WAIT",
+      "WAIT",
+      "same"
+    ],
+    [
+      12,
+      "City Council",
+      "COORDINATE",
+      "COORDINATE",
+      "same"
+    ],
+    [
+      13,
+      "City Council Closed Session",
+      "WAIT",
+      "COORDINATE",
+      "DIFFERS"
+    ],
+    [
+      14,
+      "Downtown Parking Board",
+      "WAIT",
+      "REPLAN",
+      "DIFFERS"
+    ],
+    [
+      15,
+      "Parks and Recreation Commission",
+      "WAIT",
+      "REPLAN",
+      "DIFFERS"
+    ],
+    [
+      16,
+      "Historic Landmarks Commission",
+      "REPLAN",
+      "WAIT",
+      "DIFFERS"
+    ],
+    [
+      17,
+      "Planning Director's Hearing",
+      "WAIT",
+      "COORDINATE",
+      "DIFFERS"
+    ],
+    [
+      18,
+      "Civil Service Commission",
+      "REPLAN",
+      "WAIT",
+      "DIFFERS"
+    ],
+    [
+      19,
+      "Appeals Hearing Board",
+      "REPLAN",
+      "WAIT",
+      "DIFFERS"
+    ],
+    [
+      20,
+      "City Council Closed Session",
+      "WAIT",
+      "COORDINATE",
+      "DIFFERS"
+    ]
+  ]
+}
