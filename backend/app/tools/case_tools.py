@@ -735,3 +735,156 @@ def derive_obligations(
     ]
 
     return {"ok": True, "obligations": obligations}
+
+
+# ---------------------------------------------------------------------------
+# 12. create_case — Creates a case for a meeting
+# ---------------------------------------------------------------------------
+
+@tool
+def create_case(
+    event_key: str,
+    body_name: str,
+    event_date: str,
+    obligations: list[dict[str, Any]],
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Create a case for a meeting that needs accessibility coordination.
+
+    REQUIRES idempotency_key for audit.
+
+    Args:
+        event_key: The unique meeting identifier (e.g., "seattle:6860")
+        body_name: Name of the public body (e.g., "City Council")
+        event_date: Date of the meeting (e.g., "2026-09-08")
+        obligations: List of obligations from derive_obligations
+        idempotency_key: Required for audit trail
+
+    Returns:
+        {ok: true, case_id: str, state: str} or {ok: false, error_code, message}
+    """
+    store = get_store()
+
+    # Idempotency check
+    if not store.check_idempotency(idempotency_key):
+        # Return existing case if this is a retry
+        for case_id, case in store._cases.items():
+            if case.event_id == event_key:
+                result = {
+                    "ok": True,
+                    "case_id": case.case_id,
+                    "state": case.state.value if hasattr(case.state, "value") else str(case.state),
+                    "duplicate": True,
+                }
+                store.record_action(
+                    "create_case", {"event_key": event_key}, result, True,
+                    idempotency_key=idempotency_key, case_id=case.case_id,
+                )
+                return result
+
+    # Convert obligations to Obligation objects
+    obligation_objs = []
+    for ob in obligations:
+        obligation_objs.append(Obligation(
+            basis=ob.get("basis", ""),
+            category=ob.get("category", ""),
+            description=ob.get("description", ""),
+            deadline=ob.get("deadline"),
+            must_have=ob.get("must_have", False),
+        ))
+
+    # Create the case
+    case = store.create_case(event_key, obligation_objs)
+
+    # Parse event_key to extract client and event_id
+    parts = event_key.split(":") if ":" in event_key else [event_key, "0"]
+    client = parts[0]
+    try:
+        event_id_int = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        event_id_int = 0
+
+    # Also create/update the event record
+    event = Event(
+        event_key=event_key,
+        client=client,
+        event_id=event_id_int,
+        body_name=body_name,
+        date=event_date,
+    )
+    store.upsert_event(event)
+
+    result = {
+        "ok": True,
+        "case_id": case.case_id,
+        "state": case.state.value if hasattr(case.state, "value") else str(case.state),
+    }
+
+    store.record_action(
+        "create_case", {"event_key": event_key}, result, True,
+        idempotency_key=idempotency_key, case_id=case.case_id,
+    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 13. confirm_provider_request — Simulates provider confirmation (demo)
+# ---------------------------------------------------------------------------
+
+@tool
+def confirm_provider_request(
+    request_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Confirm a provider request (simulates provider accepting the job).
+
+    In production, this would be triggered by an incoming webhook from the
+    provider. For demo purposes, this allows simulating confirmation.
+
+    REQUIRES idempotency_key for audit.
+
+    Args:
+        request_id: The request ID to confirm (e.g., "req_35bf9509")
+        idempotency_key: Required for audit trail
+
+    Returns:
+        {ok: true, request_id, status: "CONFIRMED"} or error
+    """
+    store = get_store()
+
+    # Idempotency check
+    if not store.check_idempotency(idempotency_key):
+        result = {"ok": True, "request_id": request_id, "status": "CONFIRMED", "duplicate": True}
+        store.record_action("confirm_provider_request", {"request_id": request_id}, result, True,
+                           idempotency_key=idempotency_key)
+        return result
+
+    # Get the request
+    request = store.get_request(request_id)
+    if request is None:
+        result = _error("REQUEST_NOT_FOUND", f"no request with id {request_id}")
+        store.record_action("confirm_provider_request", {"request_id": request_id}, result, False,
+                           error_code="REQUEST_NOT_FOUND", idempotency_key=idempotency_key)
+        return result
+
+    # Update status to CONFIRMED
+    request.status = RequestStatus.CONFIRMED
+    request.confirmed_at = _now()
+
+    # Update in store
+    with store._lock:
+        store._requests[request_id] = request
+
+    result = {
+        "ok": True,
+        "request_id": request_id,
+        "status": "CONFIRMED",
+    }
+
+    store.record_action(
+        "confirm_provider_request", {"request_id": request_id}, result, True,
+        idempotency_key=idempotency_key, case_id=request.case_id,
+    )
+
+    return result

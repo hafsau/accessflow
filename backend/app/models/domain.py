@@ -93,6 +93,7 @@ class Case(BaseModel):
     provider_requests: list[str] = Field(default_factory=list)
     verification_id: str | None = None
     verification_passed: bool = False
+    tool_calls: int = 0  # Counter for Cedar turns limit (braces)
     created_at: datetime
     updated_at: datetime
 
@@ -135,6 +136,7 @@ class ProviderRequest(BaseModel):
     provider_id: str
     status: RequestStatus
     sent_at: datetime
+    confirmed_at: datetime | None = None
 
 
 class DecisionOption(BaseModel):

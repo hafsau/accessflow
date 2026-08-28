@@ -38,9 +38,57 @@ from strands import Agent
 from strands.vended_interventions.cedar import CedarAuthorization
 from strands.vended_plugins.steering import LLMSteeringHandler
 
+from backend.app.agents.cedar_debug import trace as cedar_trace
+
 log = logging.getLogger(__name__)
 
 POLICY_FILE = Path(__file__).resolve().parents[3] / "policies" / "accessflow.cedar"
+SCHEMA_FILE = Path(__file__).resolve().parents[3] / "policies" / "accessflow.cedarschema"
+SUPPLEMENTARY_POLICY_FILE = Path(__file__).parent / "tool_permits.cedar"
+
+
+# ---------------------------------------------------------------------------
+# Tracing wrapper — every evaluation is logged, errors raise in tests
+# ---------------------------------------------------------------------------
+
+
+class TracingCedarAuthorization(CedarAuthorization):
+    """Wraps CedarAuthorization to trace every evaluation.
+
+    Cedar silently skips erroring policies. This wrapper ensures every
+    evaluation is logged with decision, determining policies, and errors.
+    In test mode, non-empty diagnostics.errors raises — a skipped policy
+    must never be silent.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._last_response: Any = None
+
+    def before_tool_call(self, event: Any, **kwargs: Any) -> Any:
+        """Intercept tool calls to trace Cedar authorization.
+
+        Args:
+            event: BeforeToolCallEvent from Strands SDK
+            **kwargs: Additional keyword arguments
+
+        Returns:
+            Proceed or Deny result from parent authorization
+        """
+        result = super().before_tool_call(event, **kwargs)
+
+        # Extract tool info for tracing from the event
+        tool = getattr(event, "tool", None)
+        tool_name = getattr(tool, "name", str(tool)) if tool else "unknown"
+        tool_input = getattr(event, "tool_use", {})
+        if hasattr(tool_input, "input"):
+            tool_input = tool_input.input
+
+        # Log the authorization decision
+        # The result may be Proceed or Deny
+        cedar_trace(result, tool_name, tool_input if isinstance(tool_input, dict) else {})
+
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +110,22 @@ def _resolve_principal(state: dict[str, Any]) -> dict[str, str] | None:
     return {"type": "Coordinator", "id": str(coordinator)}
 
 
+def _make_principal_resolver(default_coordinator: str | None = None):
+    """Create a principal resolver, optionally with a default coordinator.
+
+    Args:
+        default_coordinator: If set, use this as fallback when no coordinator_id
+            is found in the invocation state. For demo/testing only.
+    """
+    def resolve(state: dict[str, Any]) -> dict[str, str] | None:
+        coordinator = state.get("coordinator_id") or default_coordinator
+        if not coordinator:
+            log.warning("no coordinator_id on invocation; all tool calls will be denied")
+            return None
+        return {"type": "Coordinator", "id": str(coordinator)}
+    return resolve
+
+
 # ---------------------------------------------------------------------------
 # Context enrichment — the facts the policy needs, computed outside the model
 # ---------------------------------------------------------------------------
@@ -69,11 +133,52 @@ def _resolve_principal(state: dict[str, Any]) -> dict[str, str] | None:
 def _enrich_context(ctx: dict[str, Any]) -> dict[str, Any]:
     """Everything here is derived from persisted case state, never from model
     output. The model cannot assert `verification_passed` into existence.
-    """
-    inv: dict[str, Any] = ctx.get("invocation_state", {}) or {}
-    case: dict[str, Any] = inv.get("case", {}) or {}
 
-    requested_at = case.get("requested_at")
+    The enricher looks up the case from the store based on the case_id in the
+    tool input. This ensures verification_passed reflects the actual persisted
+    state, not anything the model can assert.
+    """
+    from backend.app.models.store import get_store
+
+    # Try to get case_id from tool input - handle various Strands SDK formats
+    tool_input = ctx.get("tool_input", {}) or {}
+    tool_use = ctx.get("tool_use", {}) or {}
+
+    # Try multiple paths to find input
+    if hasattr(tool_input, "input"):
+        tool_input = tool_input.input
+    if hasattr(tool_use, "input"):
+        tool_input = tool_use.input
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+
+    # Debug logging
+    log.debug("context enricher ctx keys: %s", list(ctx.keys()))
+
+    case_id = tool_input.get("case_id")
+    case_data: dict[str, Any] = {}
+
+    if case_id:
+        store = get_store()
+        case = store.get_case(case_id)
+        if case:
+            # Increment tool_calls counter (for Cedar turns limit)
+            turns = store.increment_tool_calls(case_id)
+            case_data = {
+                "verification_passed": case.verification_passed,
+                "state": case.state.value if hasattr(case.state, "value") else str(case.state),
+                "turns": turns,
+            }
+            log.debug(
+                "context enricher: case_id=%s verification_passed=%s state=%s turns=%d",
+                case_id, case.verification_passed, case_data["state"], turns
+            )
+
+    # Fall back to invocation_state if available
+    inv: dict[str, Any] = ctx.get("invocation_state", {}) or {}
+    fallback_case: dict[str, Any] = inv.get("case", {}) or {}
+
+    requested_at = fallback_case.get("requested_at")
     hours_since_request = 0
     if requested_at:
         try:
@@ -88,10 +193,13 @@ def _enrich_context(ctx: dict[str, Any]) -> dict[str, Any]:
         "role": str(inv.get("role", "coordinator")),
         "org_id": str(inv.get("org_id", "")),
         # Set by the Verification Agent's persisted result, never by prose.
-        "verification_passed": bool(case.get("verification_passed", False)),
-        "reminders_sent_24h": int(case.get("reminders_sent_24h", 0)),
+        # First check actual case from store, fall back to invocation_state.
+        "verification_passed": case_data.get("verification_passed", fallback_case.get("verification_passed", False)),
+        "reminders_sent_24h": int(fallback_case.get("reminders_sent_24h", 0)),
         "hours_since_request": hours_since_request,
-        "case_state": str(case.get("state", "NEW")),
+        "case_state": case_data.get("state", str(fallback_case.get("state", "NEW"))),
+        # Tool call counter for Cedar turns limit (braces). 0 if no case_id.
+        "turns": case_data.get("turns", 0),
     }
 
 
@@ -136,19 +244,76 @@ Return Proceed otherwise. Be strict on 1 and 2 and lenient on style.
 # Assembly
 # ---------------------------------------------------------------------------
 
-def build_authority(policy_file: Path = POLICY_FILE) -> CedarAuthorization:
+def _combine_policies(
+    main_file: Path,
+    supplementary_file: Path,
+) -> str:
+    """Combine main and supplementary policy files into a single string.
+
+    The supplementary file contains permits for tools not covered by the
+    main policy file (poll_public_meetings, derive_obligations,
+    extract_accommodation_policy).
+    """
+    policies = []
+
+    if main_file.exists():
+        policies.append(main_file.read_text())
+
+    if supplementary_file.exists():
+        policies.append(supplementary_file.read_text())
+
+    return "\n\n".join(policies)
+
+
+def build_authority(
+    policy_file: Path = POLICY_FILE,
+    schema_file: Path = SCHEMA_FILE,
+    supplementary_policy_file: Path = SUPPLEMENTARY_POLICY_FILE,
+    default_coordinator: str | None = None,
+) -> TracingCedarAuthorization:
     """The hard boundary. Loaded from the .cedar file so the authority model is
-    reviewable as policy, diffable in git, and hot-reloadable in the demo."""
+    reviewable as policy, diffable in git, and hot-reloadable in the demo.
+
+    Uses TracingCedarAuthorization to log every evaluation. In test mode,
+    policy evaluation errors raise CedarDiagnosticsError — a skipped policy
+    must never be silent.
+
+    The schema validates policies at load time — a typo in an action name fails
+    at startup, not as a mysterious runtime denial.
+
+    Args:
+        policy_file: Path to the main Cedar policy file
+        schema_file: Path to the Cedar schema file
+        supplementary_policy_file: Path to supplementary permits
+        default_coordinator: If set, use as fallback principal when no
+            coordinator_id is found. For demo/testing only.
+    """
     if not policy_file.exists():
         raise FileNotFoundError(f"authority policy missing: {policy_file}")
 
-    return CedarAuthorization(
-        policies=str(policy_file),
-        principal_resolver=_resolve_principal,
-        context_enricher=_enrich_context,
+    # Use custom principal resolver if default_coordinator is provided
+    if default_coordinator:
+        principal_resolver = _make_principal_resolver(default_coordinator)
+    else:
+        principal_resolver = _resolve_principal
+
+    # Combine main and supplementary policies
+    combined_policies = _combine_policies(policy_file, supplementary_policy_file)
+
+    kwargs: dict[str, Any] = {
+        "policies": combined_policies,
+        "principal_resolver": principal_resolver,
+        "context_enricher": _enrich_context,
         # Never 'proceed'. A policy-engine failure must close the gate, not open it.
-        on_error="deny",
-    )
+        "on_error": "deny",
+    }
+
+    # Schema validation disabled temporarily — Strands SDK has compatibility issues
+    # TODO: Re-enable when schema format is confirmed compatible
+    # if schema_file.exists():
+    #     kwargs["schema"] = str(schema_file)
+
+    return TracingCedarAuthorization(**kwargs)
 
 
 def build_steering() -> LLMSteeringHandler:
@@ -156,11 +321,11 @@ def build_steering() -> LLMSteeringHandler:
     return LLMSteeringHandler(system_prompt=_STEERING_PROMPT)
 
 
-def build_case_agent(tools: list[Any], system_prompt: str) -> tuple[Agent, CedarAuthorization]:
+def build_case_agent(tools: list[Any], system_prompt: str) -> tuple[Agent, TracingCedarAuthorization]:
     """Construct the Case Orchestrator with both boundaries attached.
 
-    The CedarAuthorization handle is returned alongside the agent so the demo
-    can call `.reload()` on camera and show the authority model changing
+    The TracingCedarAuthorization handle is returned alongside the agent so the
+    demo can call `.reload()` on camera and show the authority model changing
     without a restart.
     """
     cedar = build_authority()

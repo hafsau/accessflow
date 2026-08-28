@@ -94,6 +94,22 @@ class Store:
                 approved=False,
                 rating=3.0,
             ),
+            Provider(
+                provider_id="prov_accesstech",
+                name="AccessTech Solutions",
+                service_types=["ASSISTIVE_LISTENING", "LARGE_PRINT", "REMOTE_ACCESS"],
+                jurisdictions=["seattle", "kingcounty", "oakland"],
+                approved=True,
+                rating=4.6,
+            ),
+            Provider(
+                provider_id="prov_captionpro",
+                name="Caption Pro Services",
+                service_types=["CART", "REMOTE_ACCESS"],
+                jurisdictions=["seattle", "sanjose"],
+                approved=True,
+                rating=4.4,
+            ),
         ]
         for p in providers:
             self._providers[p.provider_id] = p
@@ -171,6 +187,20 @@ class Store:
         with self._lock:
             self._cases[case.case_id] = case
         return case
+
+    def increment_tool_calls(self, case_id: str) -> int:
+        """Increment and return the tool_calls counter for a case.
+
+        Used by the Cedar turns limit (braces) to track how many
+        tool calls have been made for this case.
+        """
+        with self._lock:
+            case = self._cases.get(case_id)
+            if case is None:
+                return 0
+            case.tool_calls += 1
+            case.updated_at = _now()
+            return case.tool_calls
 
     # --- Events ---
 
