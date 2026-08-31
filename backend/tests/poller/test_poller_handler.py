@@ -203,32 +203,97 @@ def test_structured_logging_format():
     with patch("backend.poller.poller_handler.load_fingerprints") as mock_load_fp:
         with patch("backend.poller.poller_handler.save_fingerprints_batch"):
             with patch("backend.poller.poller_handler.LegistarFeed") as MockFeed:
-                mock_load_fp.return_value = {}
+                with patch("backend.poller.poller_handler.load_budget") as mock_load_budget:
+                    mock_load_fp.return_value = {}
+                    mock_load_budget.return_value = {"date": "2026-09-01", "spent": 0.0, "calls": 0}
 
-                mock_feed_instance = MagicMock()
-                mock_feed_instance._seen = {}
-                mock_feed_instance.poll.return_value = ([], [])
-                MockFeed.return_value = mock_feed_instance
+                    mock_feed_instance = MagicMock()
+                    mock_feed_instance._seen = {}
+                    mock_feed_instance.poll.return_value = ([], [])
+                    MockFeed.return_value = mock_feed_instance
 
-                # Capture log output
-                log_capture = io.StringIO()
-                handler = logging.StreamHandler(log_capture)
-                handler.setLevel(logging.INFO)
+                    # Capture log output
+                    log_capture = io.StringIO()
+                    handler = logging.StreamHandler(log_capture)
+                    handler.setLevel(logging.INFO)
 
-                from backend.poller.poller_handler import logger
-                logger.addHandler(handler)
+                    from backend.poller.poller_handler import logger
+                    logger.addHandler(handler)
 
-                try:
-                    from backend.poller.poller_handler import handler as lambda_handler
-                    lambda_handler({}, None)
+                    try:
+                        from backend.poller.poller_handler import handler as lambda_handler
+                        lambda_handler({}, None)
 
-                    log_output = log_capture.getvalue()
+                        log_output = log_capture.getvalue()
 
-                    # Verify structured logs are JSON
-                    for line in log_output.strip().split("\n"):
-                        if line:
-                            data = json.loads(line)
-                            assert "event" in data
-                            assert "timestamp" in data
-                finally:
-                    logger.removeHandler(handler)
+                        # Verify structured logs are JSON
+                        for line in log_output.strip().split("\n"):
+                            if line:
+                                data = json.loads(line)
+                                assert "event" in data
+                                assert "timestamp" in data
+                    finally:
+                        logger.removeHandler(handler)
+
+
+def test_budget_exceeded_queues_all_skips_invocations():
+    """Budget at cap: zero agent invocations, all changes queued."""
+    from backend.app.tools.legistar import Meeting
+
+    with patch("backend.poller.poller_handler.load_fingerprints") as mock_load_fp:
+        with patch("backend.poller.poller_handler.save_fingerprints_batch") as mock_save_fp:
+            with patch("backend.poller.poller_handler.LegistarFeed") as MockFeed:
+                with patch("backend.poller.poller_handler._invoke_agent") as mock_invoke:
+                    with patch("backend.poller.poller_handler._queue_overflow") as mock_queue:
+                        with patch("backend.poller.poller_handler.load_budget") as mock_load_budget:
+                            with patch("backend.poller.poller_handler.DAILY_USD_CAP", 1.50):
+                                # Budget already at cap
+                                mock_load_budget.return_value = {
+                                    "date": "2026-09-01",
+                                    "spent": 1.50,  # At cap
+                                    "calls": 16,
+                                }
+
+                                mock_load_fp.return_value = {}
+
+                                # One new meeting
+                                new_meeting = Meeting(
+                                    client="seattle",
+                                    event_id=6860,
+                                    body_name="City Council",
+                                    date="2026-09-08",
+                                    time="2:00 PM",
+                                    location="City Hall",
+                                    agenda_url="https://example.com/agenda.pdf",
+                                    comment=None,
+                                    insite_url=None,
+                                    last_modified_utc=None,
+                                    row_version=None,
+                                )
+
+                                mock_feed_instance = MagicMock()
+                                mock_feed_instance._seen = {}
+                                mock_feed_instance.poll.return_value = ([new_meeting], [])
+                                MockFeed.return_value = mock_feed_instance
+
+                                from backend.poller.poller_handler import handler
+                                result = handler({}, None)
+
+                                body = json.loads(result["body"])
+
+                                # THE CRITICAL ASSERTIONS
+                                assert body["agent_invocations"] == 0
+                                assert body["queued"] == 1
+                                assert body["budget_skipped"] is True
+                                assert body["budget_spent_usd"] == 1.50
+
+                                # Agent was NEVER invoked
+                                mock_invoke.assert_not_called()
+
+                                # Change was queued
+                                mock_queue.assert_called_once()
+                                queued = mock_queue.call_args[0][0]
+                                assert len(queued) == 1
+
+                                # Fingerprints still saved
+                                mock_save_fp.assert_called_once()

@@ -1,0 +1,20 @@
+================================================================================
+AGENTCORE DEPLOY LOG
+Command: deploy
+Started: 2026-08-31T20:15:51.286Z
+================================================================================
+
+
+[13:15:51] STEP: Load deployment target
+[13:15:51] Status: SUCCESS
+[13:15:51] Duration: 328ms
+
+[13:15:51] STEP: Validate project
+[13:15:51] [ERROR] CDK project not found at /Users/hafsa/Projects/accessflow/agentcore/cdk. Run 'agentcore create' first.
+[13:15:51] Status: FAILED
+[13:15:51] Duration: 1ms
+
+================================================================================
+FAILED
+Total Duration: 331ms
+================================================================================

@@ -27,6 +27,8 @@ import boto3
 from backend.poller.persistence import (
     load_fingerprints,
     save_fingerprints_batch,
+    load_budget,
+    save_budget,
 )
 from backend.app.tools.legistar import LegistarFeed, Meeting, WATCHED_CLIENTS
 
@@ -36,6 +38,12 @@ logger.setLevel(logging.INFO)
 
 # Max cases per invocation to prevent cost spikes
 MAX_CASES_PER_INVOCATION = int(os.getenv("MAX_CASES_PER_INVOCATION", "3"))
+
+# Daily budget cap in USD
+DAILY_USD_CAP = float(os.getenv("DAILY_USD_CAP", "1.50"))
+
+# Cost per agent invocation (estimated)
+COST_PER_INVOCATION = 0.09
 
 # SQS queue for overflow (when > MAX_CASES changes detected)
 OVERFLOW_QUEUE_URL = os.getenv("OVERFLOW_QUEUE_URL", "")
@@ -177,6 +185,32 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """
     _log_structured("poll_started")
 
+    # Pre-flight budget check — FAIL CLOSED on any error
+    budget_skipped = False
+    try:
+        budget = load_budget()
+        budget_spent_usd = budget["spent"]
+    except Exception as e:
+        _log_structured(
+            "budget_load_error",
+            error=str(e),
+            action="skipping_all_invocations",
+        )
+        # FAIL CLOSED: cannot verify budget, skip all invocations
+        budget_spent_usd = 0.0
+        budget_skipped = True
+        budget = {"date": datetime.now(timezone.utc).date().isoformat(), "spent": 0.0, "calls": 0}
+
+    # Check if daily cap exceeded
+    if not budget_skipped and budget_spent_usd >= DAILY_USD_CAP:
+        _log_structured(
+            "budget_exceeded",
+            spent=budget_spent_usd,
+            cap=DAILY_USD_CAP,
+            action="skipping_all_invocations",
+        )
+        budget_skipped = True
+
     # Load current fingerprints from DynamoDB
     fingerprints = load_fingerprints()
     _log_structured(
@@ -234,6 +268,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             changes=0,
             agent_invocations=0,
             queued=0,
+            budget_spent_usd=budget_spent_usd,
+            budget_skipped=budget_skipped,
         )
         return {
             "statusCode": 200,
@@ -241,6 +277,42 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "new_meetings": 0,
                 "changes": 0,
                 "agent_invocations": 0,
+                "queued": 0,
+                "budget_spent_usd": budget_spent_usd,
+                "budget_skipped": budget_skipped,
+            }),
+        }
+
+    # If budget exceeded or load failed, queue ALL changes and skip invocations
+    if budget_skipped:
+        _queue_overflow(changes_to_process)
+        # Still save fingerprints
+        if updated_fingerprints:
+            all_fingerprints = {**fingerprints, **updated_fingerprints}
+            save_fingerprints_batch(all_fingerprints)
+            _log_structured(
+                "fingerprints_saved",
+                updated=len(updated_fingerprints),
+                total=len(all_fingerprints),
+            )
+        _log_structured(
+            "poll_complete",
+            new_meetings=len(new_meetings),
+            changes=len(changes),
+            agent_invocations=0,
+            queued=len(changes_to_process),
+            budget_spent_usd=budget_spent_usd,
+            budget_skipped=budget_skipped,
+        )
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "new_meetings": len(new_meetings),
+                "changes": len(changes),
+                "agent_invocations": 0,
+                "queued": len(changes_to_process),
+                "budget_spent_usd": budget_spent_usd,
+                "budget_skipped": budget_skipped,
             }),
         }
 
@@ -261,6 +333,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         result = _invoke_agent(meeting, change_type)
         if result.get("success") or result.get("skipped"):
             agent_invocations += 1
+            # Increment budget after successful invocation
+            budget["spent"] += COST_PER_INVOCATION
+            budget["calls"] += 1
+            save_budget(budget)
+            budget_spent_usd = budget["spent"]
 
     # Queue overflow
     if to_queue:
@@ -283,6 +360,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         changes=len(changes),
         agent_invocations=agent_invocations,
         queued=len(to_queue),
+        budget_spent_usd=budget_spent_usd,
+        budget_skipped=budget_skipped,
     )
 
     return {
@@ -292,6 +371,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "changes": len(changes),
             "agent_invocations": agent_invocations,
             "queued": len(to_queue),
+            "budget_spent_usd": budget_spent_usd,
+            "budget_skipped": budget_skipped,
         }),
     }
 

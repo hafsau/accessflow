@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
+  "name": "AccessFlow",
+  "version": 1,
+  "managedBy": "CDK",
+  "tags": {
+    "agentcore:created-by": "agentcore-cli",
+    "agentcore:project-name": "AccessFlow"
+  },
+  "runtimes": [
+    {
+      "name": "AccessFlow",
+      "build": "CodeZip",
+      "entrypoint": "main.py",
+      "codeLocation": "runtime/",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "envVars": [
+        {
+          "name": "MODEL_PROVIDER",
+          "value": "bedrock"
+        },
+        {
+          "name": "BUDGET_STORAGE",
+          "value": "file"
+        },
+        {
+          "name": "DAILY_USD_CAP",
+          "value": "1.50"
+        },
+        {
+          "name": "AGENDA_CACHE_ENABLED",
+          "value": "false"
+        }
+      ]
+    }
+  ],
+  "memories": [],
+  "knowledgeBases": [],
+  "credentials": [],
+  "evaluators": [],
+  "onlineEvalConfigs": [],
+  "agentCoreGateways": [],
+  "policyEngines": [],
+  "configBundles": [],
+  "abTests": [],
+  "harnesses": [],
+  "datasets": [],
+  "payments": []
+}
