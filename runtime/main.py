@@ -11,6 +11,7 @@ Contract:
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -32,8 +33,23 @@ def invoke(payload, context):
     meetings — which is both a correctness bug and the fastest way to
     burn the token budget.
     """
+    # AgentCore wraps CLI input in {"prompt": "..."}
+    # Extract and parse the inner JSON
+    if isinstance(payload, dict) and "prompt" in payload:
+        prompt = payload["prompt"]
+        if isinstance(prompt, str):
+            try:
+                payload = json.loads(prompt)
+            except json.JSONDecodeError:
+                return {"error": "prompt must be valid JSON"}
+    elif isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return {"error": "payload must be valid JSON"}
+
     if not isinstance(payload, dict):
-        return {"error": "payload must be a JSON object"}
+        return {"error": f"payload must be a JSON object, got {type(payload).__name__}"}
 
     meeting = payload.get("meeting")
     if not isinstance(meeting, dict):

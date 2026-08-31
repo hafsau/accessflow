@@ -11,19 +11,34 @@ expected against $50 available. This file is what closes that gap.
 
 Storage:
 - Local development: .budget.json file (default)
-- Lambda: DynamoDB table (when BUDGET_STORAGE=dynamodb)
+- Lambda/AgentCore: DynamoDB table (when BUDGET_STORAGE=dynamodb)
 """
 
 from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
 import pathlib
 
 LEDGER = pathlib.Path(os.getenv("BUDGET_LEDGER", ".budget.json"))
 DAILY_USD = float(os.getenv("DAILY_USD_CAP", "1.50"))
 STORAGE_MODE = os.getenv("BUDGET_STORAGE", "file")  # "file" or "dynamodb"
+BUDGET_TABLE = os.getenv("BUDGET_TABLE", "accessflow-budget")
+
+log = logging.getLogger(__name__)
+
+# Lazy-init DynamoDB client
+_dynamodb = None
+
+
+def _get_dynamodb():
+    global _dynamodb
+    if _dynamodb is None:
+        import boto3
+        _dynamodb = boto3.resource("dynamodb")
+    return _dynamodb
 
 
 class BudgetExceeded(RuntimeError):
@@ -49,15 +64,40 @@ def _save_file(d: dict) -> None:
 
 
 def _load_dynamodb() -> dict:
-    """Load budget from DynamoDB."""
-    from backend.poller.persistence import load_budget
-    return load_budget()
+    """Load today's budget from DynamoDB."""
+    from botocore.exceptions import ClientError
+    today = datetime.date.today().isoformat()
+    try:
+        table = _get_dynamodb().Table(BUDGET_TABLE)
+        response = table.get_item(Key={"date": today})
+        item = response.get("Item")
+        if item:
+            return {
+                "date": item["date"],
+                "spent": float(item.get("spent", 0.0)),
+                "calls": int(item.get("calls", 0)),
+            }
+    except ClientError as e:
+        log.warning("Failed to load budget: %s", e)
+    return {"date": today, "spent": 0.0, "calls": 0}
 
 
 def _save_dynamodb(d: dict) -> None:
     """Save budget to DynamoDB."""
-    from backend.poller.persistence import save_budget
-    save_budget(d)
+    from botocore.exceptions import ClientError
+    try:
+        table = _get_dynamodb().Table(BUDGET_TABLE)
+        table.put_item(
+            Item={
+                "date": d["date"],
+                "spent": str(d["spent"]),  # DynamoDB doesn't like float
+                "calls": d["calls"],
+                "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+        )
+    except ClientError as e:
+        log.error("Failed to save budget: %s", e)
+        raise
 
 
 def _load() -> dict:

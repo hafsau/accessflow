@@ -23,7 +23,11 @@
         },
         {
           "name": "BUDGET_STORAGE",
-          "value": "file"
+          "value": "dynamodb"
+        },
+        {
+          "name": "BUDGET_TABLE",
+          "value": "accessflow-budget"
         },
         {
           "name": "DAILY_USD_CAP",
