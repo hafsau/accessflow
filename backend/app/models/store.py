@@ -252,6 +252,22 @@ class Store:
             self._requests[req.request_id] = req
         return req
 
+    def count_requests_for_case(self, case_id: str) -> int:
+        """Count provider requests for a case (for Cedar sequential limit)."""
+        with self._lock:
+            return sum(1 for r in self._requests.values() if r.case_id == case_id)
+
+    def has_declined_request(self, case_id: str) -> bool:
+        """Check if any provider request for this case was declined.
+
+        Used by Cedar to allow a second provider request only after decline.
+        """
+        with self._lock:
+            return any(
+                r.case_id == case_id and r.status == RequestStatus.DECLINED
+                for r in self._requests.values()
+            )
+
     # --- Decisions ---
 
     def get_decision(self, decision_id: str) -> Decision | None:

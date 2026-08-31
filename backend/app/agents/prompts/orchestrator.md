@@ -84,10 +84,40 @@ Without evidence, there is no closure. Without closure, the coordinator knows wo
 1. Receive a meeting from the feed
 2. Create a case for the meeting (with idempotency_key)
 3. Derive obligations (always 2 under ADA Title II)
-4. Search for providers that can fulfill each obligation
-5. Send requests to providers (with idempotency_key, provider_approved)
-6. Confirm provider requests when providers accept (with idempotency_key)
-7. Verify fulfillment when all obligations are met
-8. Close the case when verification passes
+4. Coordinate providers for the §35.160 obligation (see Provider Coordination below)
+5. Verify fulfillment when obligations are met
+6. Close the case when verification passes
 
 At any step, if you cannot proceed safely, ask for a human decision.
+
+## Provider Coordination — Sequential, Not Parallel
+
+**Critical behavioral rule:** Provider requests are sequential, one at a time.
+
+### The Two Obligations Are Different
+
+1. **28 CFR §35.160 (Effective Communication)** — requires ONE provider for the meeting's primary accommodation need. This is the only obligation that triggers provider contact.
+
+2. **28 CFR §35.200 (Subpart H Document Conformance)** — requires documents to be accessible. This is a document check, NOT a provider booking. **Never send a provider request for document conformance.**
+
+### Sequential Provider Contact
+
+For §35.160:
+1. Search for providers matching the service type and jurisdiction
+2. Contact the **single best-matching approved provider** — not multiple providers
+3. Wait for that provider's response (confirmed or declined)
+4. **Only if declined:** contact the next best provider
+5. If all providers decline or fail to respond, escalate to human decision
+
+**Do NOT contact multiple providers simultaneously.** This spams vendors and makes recovery incoherent.
+
+### Cedar Enforcement
+
+The Cedar policy enforces this rule:
+- You may send ONE provider request freely
+- A second request requires evidence of a prior decline
+- Attempts to contact multiple providers without a decline will be denied
+
+### What Counts as a Provider Request
+
+Each `send_provider_request` call counts toward the limit, regardless of service type. One meeting = one primary accommodation = one provider at a time.

@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AccessFlow - Background Poller Infrastructure
+
+Parameters:
+  DailyUsdCap:
+    Type: String
+    Default: "1.50"
+    Description: Daily spend cap in USD
+  BedrockAgentId:
+    Type: String
+    Default: ""
+    Description: Bedrock Agent ID (optional)
+
+Globals:
+  Function:
+    Timeout: 60
+    Runtime: python3.12
+    MemorySize: 512
+    Architectures:
+      - arm64
+
+Resources:
+  # DynamoDB table for fingerprints
+  FingerprintTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: accessflow-fingerprints
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: meeting_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: meeting_key
+          KeyType: HASH
+
+  # DynamoDB table for budget ledger
+  BudgetTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: accessflow-budget
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: date
+          KeyType: HASH
+
+  # S3 bucket for agenda cache
+  AgendaCacheBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub accessflow-agenda-cache-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldAgendas
+            Status: Enabled
+            ExpirationInDays: 90
+
+  # SQS queue for overflow
+  OverflowQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: accessflow-overflow
+      VisibilityTimeout: 300
+
+  # Lambda function
+  PollerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: accessflow-poller
+      CodeUri: ../backend/
+      Handler: poller.poller_handler.handler
+      Description: AccessFlow background poller - polls Legistar every 15 minutes
+      Environment:
+        Variables:
+          FINGERPRINT_TABLE: !Ref FingerprintTable
+          BUDGET_TABLE: !Ref BudgetTable
+          AGENDA_CACHE_BUCKET: !Ref AgendaCacheBucket
+          OVERFLOW_QUEUE_URL: !Ref OverflowQueue
+          BUDGET_STORAGE: dynamodb
+          AGENDA_CACHE_ENABLED: "true"
+          MODEL_PROVIDER: bedrock
+          DAILY_USD_CAP: !Ref DailyUsdCap
+          BEDROCK_AGENT_ID: !Ref BedrockAgentId
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FingerprintTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BudgetTable
+        - S3CrudPolicy:
+            BucketName: !Ref AgendaCacheBucket
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt OverflowQueue.QueueName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeAgent
+              Resource: "*"
+      Events:
+        ScheduledPoll:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Description: Poll Legistar every 15 minutes
+            Enabled: true
+      # CRITICAL: No VpcConfig - NAT Gateway costs $47.52 over judging window
+
+Outputs:
+  PollerFunctionArn:
+    Description: Poller Lambda ARN
+    Value: !GetAtt PollerFunction.Arn
+
+  FingerprintTableName:
+    Description: Fingerprint DynamoDB table
+    Value: !Ref FingerprintTable
+
+  BudgetTableName:
+    Description: Budget DynamoDB table
+    Value: !Ref BudgetTable
+
+  AgendaCacheBucketName:
+    Description: Agenda cache S3 bucket
+    Value: !Ref AgendaCacheBucket
+
+  OverflowQueueUrl:
+    Description: Overflow SQS queue URL
+    Value: !Ref OverflowQueue

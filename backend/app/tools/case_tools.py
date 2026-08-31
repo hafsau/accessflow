@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from strands import tool
+
+# Enable S3 agenda cache for Lambda
+AGENDA_CACHE_ENABLED = os.getenv("AGENDA_CACHE_ENABLED", "false").lower() == "true"
 
 from backend.app.models.domain import (
     AccommodationPolicy,
@@ -116,6 +120,23 @@ def fetch_agenda_document(agenda_url: str, max_pages: int = 5) -> dict[str, Any]
     Returns:
         Document metadata including page count, text preview, content hash
     """
+    # Check S3 cache first (Lambda mode)
+    if AGENDA_CACHE_ENABLED:
+        try:
+            from backend.lambda.persistence import get_cached_agenda, cache_agenda
+            cached = get_cached_agenda(agenda_url)
+            if cached:
+                doc = Document(
+                    url=cached["url"],
+                    page_count=cached["page_count"],
+                    text_preview=cached["text"][:500],
+                    fetched_at=datetime.fromisoformat(cached["fetched_at"]),
+                    content_hash=cached["content_hash"],
+                )
+                return FetchDocumentResponse(document=doc).model_dump()
+        except Exception:
+            pass  # Fall through to fetch
+
     try:
         resp = httpx.get(agenda_url, timeout=30.0, follow_redirects=True)
         resp.raise_for_status()
@@ -136,6 +157,14 @@ def fetch_agenda_document(agenda_url: str, max_pages: int = 5) -> dict[str, Any]
         return _error(ErrorCode.PARSE_FAILED, f"PDF parse error: {e}")
 
     content_hash = "sha256:" + hashlib.sha256(resp.content).hexdigest()[:16]
+
+    # Cache to S3 (Lambda mode)
+    if AGENDA_CACHE_ENABLED:
+        try:
+            from backend.lambda.persistence import cache_agenda
+            cache_agenda(agenda_url, text, page_count, content_hash)
+        except Exception:
+            pass  # Caching failure shouldn't block
 
     doc = Document(
         url=agenda_url,

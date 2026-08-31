@@ -164,14 +164,21 @@ def _enrich_context(ctx: dict[str, Any]) -> dict[str, Any]:
         if case:
             # Increment tool_calls counter (for Cedar turns limit)
             turns = store.increment_tool_calls(case_id)
+            # Count provider requests and check for declines (for Cedar sequential limit)
+            provider_requests_for_case = store.count_requests_for_case(case_id)
+            has_prior_decline = store.has_declined_request(case_id)
             case_data = {
                 "verification_passed": case.verification_passed,
                 "state": case.state.value if hasattr(case.state, "value") else str(case.state),
                 "turns": turns,
+                "provider_requests_for_case": provider_requests_for_case,
+                "has_prior_decline": has_prior_decline,
             }
             log.debug(
-                "context enricher: case_id=%s verification_passed=%s state=%s turns=%d",
-                case_id, case.verification_passed, case_data["state"], turns
+                "context enricher: case_id=%s verification_passed=%s state=%s turns=%d "
+                "provider_requests=%d has_decline=%s",
+                case_id, case.verification_passed, case_data["state"], turns,
+                provider_requests_for_case, has_prior_decline
             )
 
     # Fall back to invocation_state if available
@@ -200,6 +207,10 @@ def _enrich_context(ctx: dict[str, Any]) -> dict[str, Any]:
         "case_state": case_data.get("state", str(fallback_case.get("state", "NEW"))),
         # Tool call counter for Cedar turns limit (braces). 0 if no case_id.
         "turns": case_data.get("turns", 0),
+        # Provider request tracking for Cedar sequential limit.
+        # provider_requests_for_case >= 2 without has_prior_decline triggers forbid.
+        "provider_requests_for_case": case_data.get("provider_requests_for_case", 0),
+        "has_prior_decline": case_data.get("has_prior_decline", False),
     }
 
 

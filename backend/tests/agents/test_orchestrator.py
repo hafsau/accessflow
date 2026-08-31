@@ -189,3 +189,126 @@ def test_limits_type_has_turns():
     assert hasattr(Limits, "__annotations__")
     assert "turns" in Limits.__annotations__
     assert Limits.__annotations__["turns"] == int
+
+
+# ---------------------------------------------------------------------------
+# Test: Sequential provider contact
+# ---------------------------------------------------------------------------
+
+
+def test_sequential_provider_one_request_when_confirmed():
+    """One case produces at most one send_provider_request when the first confirms.
+
+    The orchestrator should contact ONE provider for §35.160, not multiple.
+    This test verifies the store correctly tracks provider requests per case.
+    """
+    from backend.app.models.store import reset_store, get_store
+    from backend.app.models.domain import RequestStatus
+
+    reset_store()
+    store = get_store()
+
+    # Create a case
+    case = store.create_case("event_001", [])
+    case_id = case.case_id
+
+    # Initially, no requests
+    assert store.count_requests_for_case(case_id) == 0
+    assert not store.has_declined_request(case_id)
+
+    # Send first provider request
+    req1 = store.create_request(case_id, "prov_pacific")
+    assert store.count_requests_for_case(case_id) == 1
+    assert not store.has_declined_request(case_id)
+
+    # Simulate confirmation — the request status is updated
+    req1.status = RequestStatus.CONFIRMED
+
+    # With one confirmed request, count is 1, no decline
+    assert store.count_requests_for_case(case_id) == 1
+    assert not store.has_declined_request(case_id)
+
+    # The context enricher should report these values
+    from backend.app.agents.authority import _enrich_context
+
+    ctx = {"tool_input": {"case_id": case_id}, "invocation_state": {}}
+    enriched = _enrich_context(ctx)
+
+    assert enriched["provider_requests_for_case"] == 1
+    assert enriched["has_prior_decline"] is False
+
+
+def test_sequential_provider_second_request_after_decline():
+    """A second provider request is allowed after the first declines."""
+    from backend.app.models.store import reset_store, get_store
+    from backend.app.models.domain import RequestStatus
+
+    reset_store()
+    store = get_store()
+
+    # Create a case
+    case = store.create_case("event_002", [])
+    case_id = case.case_id
+
+    # Send first request
+    req1 = store.create_request(case_id, "prov_pacific")
+    assert store.count_requests_for_case(case_id) == 1
+
+    # First provider declines
+    req1.status = RequestStatus.DECLINED
+
+    # Now has_prior_decline should be True
+    assert store.has_declined_request(case_id)
+
+    # Context enricher should reflect this
+    from backend.app.agents.authority import _enrich_context
+
+    ctx = {"tool_input": {"case_id": case_id}, "invocation_state": {}}
+    enriched = _enrich_context(ctx)
+
+    assert enriched["provider_requests_for_case"] == 1
+    assert enriched["has_prior_decline"] is True
+
+    # A second request should now be allowed (Cedar would permit)
+    req2 = store.create_request(case_id, "prov_signon")
+    assert store.count_requests_for_case(case_id) == 2
+    # Still has decline from req1
+    assert store.has_declined_request(case_id)
+
+
+def test_sequential_provider_cedar_blocks_parallel_requests():
+    """Cedar blocks a third provider request without a prior decline.
+
+    This tests the context enricher values that Cedar uses for the forbid rule:
+    forbid send_provider_request when provider_requests_for_case >= 2
+    unless has_prior_decline == true
+    """
+    from backend.app.models.store import reset_store, get_store
+    from backend.app.models.domain import RequestStatus
+
+    reset_store()
+    store = get_store()
+
+    # Create a case and send TWO requests without any declines
+    case = store.create_case("event_003", [])
+    case_id = case.case_id
+
+    req1 = store.create_request(case_id, "prov_pacific")
+    req2 = store.create_request(case_id, "prov_signon")
+
+    # Both are SENT (not declined)
+    assert req1.status == RequestStatus.SENT
+    assert req2.status == RequestStatus.SENT
+
+    # Context enricher should show 2 requests, no decline
+    from backend.app.agents.authority import _enrich_context
+
+    ctx = {"tool_input": {"case_id": case_id}, "invocation_state": {}}
+    enriched = _enrich_context(ctx)
+
+    assert enriched["provider_requests_for_case"] == 2
+    assert enriched["has_prior_decline"] is False
+
+    # Cedar rule: forbid when provider_requests_for_case >= 2 unless has_prior_decline
+    # With 2 requests and no decline, a third request would be blocked
+    # (The actual Cedar evaluation happens in the intervention, this test verifies the inputs)

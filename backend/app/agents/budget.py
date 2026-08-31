@@ -8,6 +8,10 @@ expected against $50 available. This file is what closes that gap.
 
     from backend.app.agents.budget import check_and_charge
     check_and_charge(0.01)   # before every Bedrock invocation
+
+Storage:
+- Local development: .budget.json file (default)
+- Lambda: DynamoDB table (when BUDGET_STORAGE=dynamodb)
 """
 
 from __future__ import annotations
@@ -19,13 +23,15 @@ import pathlib
 
 LEDGER = pathlib.Path(os.getenv("BUDGET_LEDGER", ".budget.json"))
 DAILY_USD = float(os.getenv("DAILY_USD_CAP", "1.50"))
+STORAGE_MODE = os.getenv("BUDGET_STORAGE", "file")  # "file" or "dynamodb"
 
 
 class BudgetExceeded(RuntimeError):
     pass
 
 
-def _load() -> dict:
+def _load_file() -> dict:
+    """Load budget from local file."""
     today = datetime.date.today().isoformat()
     if LEDGER.exists():
         try:
@@ -35,6 +41,38 @@ def _load() -> dict:
         except (json.JSONDecodeError, OSError):
             pass
     return {"date": today, "spent": 0.0, "calls": 0}
+
+
+def _save_file(d: dict) -> None:
+    """Save budget to local file."""
+    LEDGER.write_text(json.dumps(d))
+
+
+def _load_dynamodb() -> dict:
+    """Load budget from DynamoDB."""
+    from backend.lambda.persistence import load_budget
+    return load_budget()
+
+
+def _save_dynamodb(d: dict) -> None:
+    """Save budget to DynamoDB."""
+    from backend.lambda.persistence import save_budget
+    save_budget(d)
+
+
+def _load() -> dict:
+    """Load budget from configured storage."""
+    if STORAGE_MODE == "dynamodb":
+        return _load_dynamodb()
+    return _load_file()
+
+
+def _save(d: dict) -> None:
+    """Save budget to configured storage."""
+    if STORAGE_MODE == "dynamodb":
+        _save_dynamodb(d)
+    else:
+        _save_file(d)
 
 
 def check_and_charge(est_usd: float) -> float:
@@ -53,7 +91,7 @@ def check_and_charge(est_usd: float) -> float:
         )
     d["spent"] += est_usd
     d["calls"] += 1
-    LEDGER.write_text(json.dumps(d))
+    _save(d)
     return d["spent"]
 
 

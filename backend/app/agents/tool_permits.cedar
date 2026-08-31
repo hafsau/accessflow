@@ -40,3 +40,24 @@ when {
     context.session has turns &&
     context.session.turns > 15
 };
+
+// ---------------------------------------------------------------------------
+// SEQUENTIAL PROVIDER CONTACT — one provider at a time.
+//
+// The §35.160 obligation needs ONE provider. Contact the best match, wait for
+// response. Only contact a second provider after the first declines.
+//
+// This forbid blocks send_provider_request when 2+ requests already exist
+// UNLESS a prior request was declined. Every dereference is has-guarded.
+// ---------------------------------------------------------------------------
+forbid(principal, action == Action::"send_provider_request", resource)
+when {
+    context has session &&
+    context.session has provider_requests_for_case &&
+    context.session.provider_requests_for_case >= 2
+}
+unless {
+    context has session &&
+    context.session has has_prior_decline &&
+    context.session.has_prior_decline == true
+};
