@@ -11,3 +11,5 @@ node_modules/
 poller.pid
 .claude/
 agentcore/.cli/logs/
+agentcore/.cache/
+agentcore/.cli/

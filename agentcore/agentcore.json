@@ -36,6 +36,10 @@
         {
           "name": "AGENDA_CACHE_ENABLED",
           "value": "false"
+        },
+        {
+          "name": "CORE_TABLE",
+          "value": "accessflow-core"
         }
       ]
     }

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from threading import Lock
@@ -316,14 +317,18 @@ class Store:
         return ver
 
 
-# Global store instance — replace with DI in production
+# Global store instance — picks DynamoDB when CORE_TABLE is set
 _store: Store | None = None
 
 
 def get_store() -> Store:
     global _store
     if _store is None:
-        _store = Store()
+        if os.getenv("CORE_TABLE"):
+            from .dynamo_store import DynamoStore
+            _store = DynamoStore(os.environ["CORE_TABLE"])
+        else:
+            _store = Store()
     return _store
 
 
