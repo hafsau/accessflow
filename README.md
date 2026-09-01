@@ -174,8 +174,9 @@ consumption.
 ```bash
 git clone https://github.com/yourusername/accessflow.git
 cd accessflow
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pip install strands-agents==1.53.0 strands-agents-tools==0.8.6
+pip install "strands-agents[cedar]==1.53.0" strands-agents-tools==0.8.6
 ```
 
 ### 2. Enable Bedrock model access
