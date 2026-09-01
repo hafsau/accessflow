@@ -7,10 +7,22 @@ Parameters:
     Type: String
     Default: "1.50"
     Description: Daily spend cap in USD
-  BedrockAgentId:
+  AgentCoreRuntimeArn:
     Type: String
-    Default: ""
-    Description: Bedrock Agent ID (optional)
+    Default: "arn:aws:bedrock-agentcore:us-west-2:684589295815:runtime/AccessFlow_AccessFlow-WrVmzyAk66"
+    Description: AgentCore runtime ARN
+  FingerprintTableName:
+    Type: String
+    Default: "accessflow-fingerprints"
+    Description: Existing DynamoDB table for fingerprints
+  BudgetTableName:
+    Type: String
+    Default: "accessflow-budget"
+    Description: Existing DynamoDB table for budget
+  AgendaCacheBucketName:
+    Type: String
+    Default: "accessflow-agenda-cache-684589295815"
+    Description: Existing S3 bucket for agenda cache
 
 Globals:
   Function:
@@ -21,51 +33,14 @@ Globals:
       - arm64
 
 Resources:
-  # DynamoDB table for fingerprints
-  FingerprintTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: accessflow-fingerprints
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: meeting_key
-          AttributeType: S
-      KeySchema:
-        - AttributeName: meeting_key
-          KeyType: HASH
-
-  # DynamoDB table for budget ledger
-  BudgetTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: accessflow-budget
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: date
-          AttributeType: S
-      KeySchema:
-        - AttributeName: date
-          KeyType: HASH
-
-  # S3 bucket for agenda cache
-  AgendaCacheBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub accessflow-agenda-cache-${AWS::AccountId}
-      LifecycleConfiguration:
-        Rules:
-          - Id: ExpireOldAgendas
-            Status: Enabled
-            ExpirationInDays: 90
-
-  # SQS queue for overflow
-  OverflowQueue:
+  # SQS queue for meeting processing
+  MeetingQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: accessflow-overflow
-      VisibilityTimeout: 300
+      QueueName: accessflow-meetings
+      VisibilityTimeout: 900  # 15 minutes to match worker Lambda timeout
 
-  # Lambda function
+  # Poller Lambda - detects changes and queues meetings
   PollerFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -75,29 +50,24 @@ Resources:
       Description: AccessFlow background poller - polls Legistar every 15 minutes
       Environment:
         Variables:
-          FINGERPRINT_TABLE: !Ref FingerprintTable
-          BUDGET_TABLE: !Ref BudgetTable
-          AGENDA_CACHE_BUCKET: !Ref AgendaCacheBucket
-          OVERFLOW_QUEUE_URL: !Ref OverflowQueue
+          FINGERPRINT_TABLE: !Ref FingerprintTableName
+          BUDGET_TABLE: !Ref BudgetTableName
+          AGENDA_CACHE_BUCKET: !Ref AgendaCacheBucketName
+          MEETING_QUEUE_URL: !Ref MeetingQueue
           BUDGET_STORAGE: dynamodb
           AGENDA_CACHE_ENABLED: "true"
           MODEL_PROVIDER: bedrock
           DAILY_USD_CAP: !Ref DailyUsdCap
-          BEDROCK_AGENT_ID: !Ref BedrockAgentId
+          CORE_TABLE: accessflow-core
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref FingerprintTable
+            TableName: !Ref FingerprintTableName
         - DynamoDBCrudPolicy:
-            TableName: !Ref BudgetTable
+            TableName: !Ref BudgetTableName
         - S3CrudPolicy:
-            BucketName: !Ref AgendaCacheBucket
+            BucketName: !Ref AgendaCacheBucketName
         - SQSSendMessagePolicy:
-            QueueName: !GetAtt OverflowQueue.QueueName
-        - Statement:
-            - Effect: Allow
-              Action:
-                - bedrock:InvokeAgent
-              Resource: "*"
+            QueueName: !GetAtt MeetingQueue.QueueName
       Events:
         ScheduledPoll:
           Type: Schedule
@@ -107,23 +77,57 @@ Resources:
             Enabled: true
       # CRITICAL: No VpcConfig - NAT Gateway costs $47.52 over judging window
 
+  # Worker Lambda - processes meetings from SQS, calls AgentCore runtime
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: accessflow-worker
+      CodeUri: ../backend/
+      Handler: poller.worker_handler.handler
+      Timeout: 900  # 15 minutes for ~4 minute AgentCore calls
+      MemorySize: 1024
+      Description: AccessFlow worker - processes meetings via AgentCore runtime
+      Environment:
+        Variables:
+          AGENTCORE_RUNTIME_ARN: !Ref AgentCoreRuntimeArn
+          CORE_TABLE: accessflow-core
+          BUDGET_TABLE: !Ref BudgetTableName
+          BUDGET_STORAGE: dynamodb
+          MODEL_PROVIDER: bedrock
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BudgetTableName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock-agentcore:InvokeAgentRuntime
+              Resource: !Sub "${AgentCoreRuntimeArn}*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+              Resource:
+                - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core
+                - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core/index/*
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt MeetingQueue.Arn
+            BatchSize: 1  # Process one meeting at a time
+
 Outputs:
   PollerFunctionArn:
     Description: Poller Lambda ARN
     Value: !GetAtt PollerFunction.Arn
 
-  FingerprintTableName:
-    Description: Fingerprint DynamoDB table
-    Value: !Ref FingerprintTable
+  WorkerFunctionArn:
+    Description: Worker Lambda ARN
+    Value: !GetAtt WorkerFunction.Arn
 
-  BudgetTableName:
-    Description: Budget DynamoDB table
-    Value: !Ref BudgetTable
-
-  AgendaCacheBucketName:
-    Description: Agenda cache S3 bucket
-    Value: !Ref AgendaCacheBucket
-
-  OverflowQueueUrl:
-    Description: Overflow SQS queue URL
-    Value: !Ref OverflowQueue
+  MeetingQueueUrl:
+    Description: Meeting processing SQS queue URL
+    Value: !Ref MeetingQueue
