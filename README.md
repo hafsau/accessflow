@@ -56,9 +56,8 @@ accommodation requests.
 ## What it does
 
 1. **Polls real public meeting calendars** every 15 minutes via the Legistar public API — no key
-   required, no scraping. 13 jurisdictions are configured — Seattle, Alameda, Oakland, San José,
-   Long Beach, Mountain View, Denver, King County, Metro, San Mateo County, Santa Clara,
-   Sacramento and Fresno.
+   required, no scraping. 6 jurisdictions are configured — Seattle, Oakland, San José, King County,
+   Alameda and Sacramento.
 2. **Detects genuine change**, not just new rows. It compares `EventLastModifiedUtc` and a content
    fingerprint of the agenda document, and re-runs the agent only on meetings that are new or that
    actually moved — a cancellation, a reschedule, an agenda replaced after first review. That
@@ -80,7 +79,7 @@ Stated plainly, because it matters for reading anything below.
 
 | Real | Simulated |
 |---|---|
-| Meetings, bodies, dates, locations | The provider directory (7 seeded providers) |
+| Meetings, bodies, dates, locations | The provider directory (6 seeded providers) |
 | Agenda documents, fetched and parsed | Provider communication — no message reaches a real vendor |
 | Cancellations and reschedules, as they happen | |
 | The statutory obligations and their deadlines | |

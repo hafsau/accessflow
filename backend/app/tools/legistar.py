@@ -39,11 +39,10 @@ BASE = "https://webapi.legistar.com/v1"
 
 # Public bodies to watch. Each is a live Legistar client namespace.
 # Verify a namespace before adding it:  GET {BASE}/{client}/Bodies?$top=1
-# Verified 2026-08-27: 13 namespaces (sfgov 400s on Events filter)
+# Limited to jurisdictions with seeded provider coverage, plus sacramento
+# (deliberately kept for PROVIDER_SHORTAGE demo beat).
 WATCHED_CLIENTS: tuple[str, ...] = (
-    "seattle", "alameda", "oakland", "sanjose", "longbeach", "mountainview",
-    "denver", "kingcounty", "metro", "sanmateocounty", "santaclara",
-    "sacramento", "fresno",
+    "seattle", "oakland", "sanjose", "kingcounty", "alameda", "sacramento",
 )
 
 # Legistar is a shared public service. Be a good citizen.
