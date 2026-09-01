@@ -119,6 +119,31 @@ Resources:
             Queue: !GetAtt MeetingQueue.Arn
             BatchSize: 1  # Process one meeting at a time
 
+  # Console Lambda - public read-only dashboard with Function URL
+  ConsoleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: accessflow-console
+      CodeUri: ../backend/
+      Handler: console.handler.handler
+      Timeout: 30
+      MemorySize: 256
+      Description: AccessFlow operations console - public read-only dashboard
+      Environment:
+        Variables:
+          CORE_TABLE: accessflow-core
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource:
+                - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core
+                - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core/index/*
+      FunctionUrlConfig:
+        AuthType: NONE  # Public, no credentials required
+
 Outputs:
   PollerFunctionArn:
     Description: Poller Lambda ARN
@@ -131,3 +156,7 @@ Outputs:
   MeetingQueueUrl:
     Description: Meeting processing SQS queue URL
     Value: !Ref MeetingQueue
+
+  ConsoleFunctionUrl:
+    Description: Public console URL (no auth required)
+    Value: !GetAtt ConsoleFunctionUrl.FunctionUrl
