@@ -15,3 +15,6 @@ agentcore/.cache/
 agentcore/.cli/
 agentcore/.cache/
 agentcore/.cli/
+infrastructure/.aws-sam/
+*.test_results.json
+llm_value_test_results.json
