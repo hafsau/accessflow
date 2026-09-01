@@ -39,11 +39,10 @@ BASE = "https://webapi.legistar.com/v1"
 
 # Public bodies to watch. Each is a live Legistar client namespace.
 # Verify a namespace before adding it:  GET {BASE}/{client}/Bodies?$top=1
-# Verified 2026-08-27: 13 namespaces (sfgov 400s on Events filter)
+# Limited to jurisdictions with seeded provider coverage, plus sacramento
+# (deliberately kept for PROVIDER_SHORTAGE demo beat).
 WATCHED_CLIENTS: tuple[str, ...] = (
-    "seattle", "alameda", "oakland", "sanjose", "longbeach", "mountainview",
-    "denver", "kingcounty", "metro", "sanmateocounty", "santaclara",
-    "sacramento", "fresno",
+    "seattle", "oakland", "sanjose", "kingcounty", "alameda", "sacramento",
 )
 
 # Legistar is a shared public service. Be a good citizen.
@@ -153,6 +152,30 @@ class LegistarFeed:
             **{"$filter": odata, "$orderby": "EventDate asc", "$top": "200"},
         )
         return [self._normalise(client, r) for r in rows]
+
+    def upcoming_with_agenda(self, days_ahead: int = 10) -> list[Meeting]:
+        """Meetings the agent can actually complete: agenda published, date within window.
+
+        For demo prioritisation. Returns meetings across ALL watched clients that have:
+        - A non-null agenda_url (agenda is published)
+        - A date within the next `days_ahead` days
+
+        Sorted by date ascending.
+        """
+        actionable: list[Meeting] = []
+        for client in self.clients:
+            try:
+                meetings = self.upcoming(client, days_ahead=days_ahead)
+                for m in meetings:
+                    if m.agenda_url:
+                        actionable.append(m)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("legistar fetch failed for %s: %s", client, exc)
+                continue
+
+        # Sort by date
+        actionable.sort(key=lambda m: m.date)
+        return actionable
 
     @staticmethod
     def _normalise(client: str, r: dict[str, Any]) -> Meeting:

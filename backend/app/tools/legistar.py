@@ -153,6 +153,30 @@ class LegistarFeed:
         )
         return [self._normalise(client, r) for r in rows]
 
+    def upcoming_with_agenda(self, days_ahead: int = 10) -> list[Meeting]:
+        """Meetings the agent can actually complete: agenda published, date within window.
+
+        For demo prioritisation. Returns meetings across ALL watched clients that have:
+        - A non-null agenda_url (agenda is published)
+        - A date within the next `days_ahead` days
+
+        Sorted by date ascending.
+        """
+        actionable: list[Meeting] = []
+        for client in self.clients:
+            try:
+                meetings = self.upcoming(client, days_ahead=days_ahead)
+                for m in meetings:
+                    if m.agenda_url:
+                        actionable.append(m)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("legistar fetch failed for %s: %s", client, exc)
+                continue
+
+        # Sort by date
+        actionable.sort(key=lambda m: m.date)
+        return actionable
+
     @staticmethod
     def _normalise(client: str, r: dict[str, Any]) -> Meeting:
         return Meeting(

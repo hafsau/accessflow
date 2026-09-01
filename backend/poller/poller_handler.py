@@ -258,13 +258,39 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             }),
         }
 
-    # Queue up to MAX_CASES_PER_INVOCATION to SQS (async via worker Lambda)
-    to_queue = changes_to_process[:MAX_CASES_PER_INVOCATION]
+    # Queue only actionable meetings to SQS (async via worker Lambda)
+    # A meeting is actionable when:
+    #   1. It's a new meeting AND has an agenda_url, OR
+    #   2. change_type is "agenda_posted" (agenda just became available)
+    # Meetings without agenda_url cost ~$0.54 per invocation and cannot succeed.
     queued_count = 0
+    awaiting_agenda_count = 0
 
-    for meeting, change_type, old_fp, new_fp in to_queue:
-        if _queue_meeting(meeting, change_type):
-            queued_count += 1
+    for meeting, change_type, old_fp, new_fp in changes_to_process:
+        if queued_count >= MAX_CASES_PER_INVOCATION:
+            break
+
+        # Check if this meeting is actionable
+        has_agenda = bool(meeting.agenda_url)
+        is_agenda_posted = change_type == "agenda_posted"
+        is_new_meeting = change_type == "new_meeting"
+
+        if is_agenda_posted or (is_new_meeting and has_agenda):
+            # Actionable: queue for AgentCore
+            if _queue_meeting(meeting, change_type):
+                queued_count += 1
+        elif is_new_meeting and not has_agenda:
+            # Not actionable yet: log as awaiting agenda
+            awaiting_agenda_count += 1
+            _log_structured(
+                "awaiting_agenda",
+                meeting_key=meeting.key,
+                body_name=meeting.body_name,
+                date=meeting.date,
+                reason="new meeting has no agenda_url; will queue when agenda_posted",
+            )
+        # Other change types (cancelled, rescheduled) are tracked via fingerprints
+        # but don't need agent invocation - they're detected on next poll if relevant
 
     # Save updated fingerprints
     if updated_fingerprints:
@@ -281,6 +307,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         new_meetings=len(new_meetings),
         changes=len(changes),
         queued=queued_count,
+        awaiting_agenda=awaiting_agenda_count,
         budget_spent_usd=budget_spent_usd,
         budget_skipped=budget_skipped,
     )
@@ -291,6 +318,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "new_meetings": len(new_meetings),
             "changes": len(changes),
             "queued": queued_count,
+            "awaiting_agenda": awaiting_agenda_count,
             "budget_spent_usd": budget_spent_usd,
             "budget_skipped": budget_skipped,
         }),
