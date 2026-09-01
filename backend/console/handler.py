@@ -1,17 +1,21 @@
 """
-AccessFlow Operations Console — public, read-only dashboard.
+AccessFlow Operations Console — public dashboard with operator controls.
 
 Single Lambda with Function URL serving:
-- GET / → HTML dashboard with case list and decision queue
+- GET / → HTML dashboard with case list, decision queue, and provider controls
 - GET /api/cases → JSON array of cases
+- GET /api/pending-requests → JSON array of provider requests awaiting response
+- POST /api/simulate-provider-response → Simulate provider confirmation (operator action)
 
 AuthType: NONE (public, no credentials required).
+Provider simulation is an operator action, not an agent action.
 """
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -73,8 +77,111 @@ def _get_case_decision(case_id: str) -> dict[str, Any] | None:
     return None
 
 
-def _render_html(cases: list[dict]) -> str:
+def _get_pending_requests() -> list[dict[str, Any]]:
+    """Get all provider requests with status SENT (awaiting provider response)."""
+    table = _get_table()
+
+    # Scan for REQUEST entities with SENT status
+    response = table.scan(
+        FilterExpression="entity = :e",
+        ExpressionAttributeValues={":e": "REQUEST"},
+    )
+
+    pending = []
+    for item in response.get("Items", []):
+        if "data" in item:
+            data = json.loads(item["data"]) if isinstance(item["data"], str) else item["data"]
+            if data.get("status") == "SENT":
+                pending.append(data)
+
+    # Sort by sent_at
+    pending.sort(key=lambda r: r.get("sent_at", ""), reverse=True)
+    return pending
+
+
+def _simulate_provider_response(request_id: str, response_type: str = "CONFIRMED") -> dict[str, Any]:
+    """Simulate a provider response (confirmation or decline).
+
+    This is an OPERATOR action, not an agent action. The agent cannot call this.
+    The UI clearly labels this as simulated.
+
+    Args:
+        request_id: The request to respond to
+        response_type: CONFIRMED or DECLINED
+
+    Returns:
+        Result dict with success status
+    """
+    table = _get_table()
+
+    # Find the request
+    response = table.scan(
+        FilterExpression="entity = :e",
+        ExpressionAttributeValues={":e": "REQUEST"},
+    )
+
+    request_data = None
+    request_item = None
+    for item in response.get("Items", []):
+        if "data" in item:
+            data = json.loads(item["data"]) if isinstance(item["data"], str) else item["data"]
+            if data.get("request_id") == request_id:
+                request_data = data
+                request_item = item
+                break
+
+    if not request_data:
+        return {"ok": False, "error": f"Request {request_id} not found"}
+
+    if request_data.get("status") != "SENT":
+        return {"ok": False, "error": f"Request is not in SENT status (current: {request_data.get('status')})"}
+
+    # Update the request
+    now = datetime.now(timezone.utc).isoformat()
+    request_data["status"] = response_type
+    if response_type == "CONFIRMED":
+        request_data["confirmed_at"] = now
+    request_data["simulated_by"] = "operator_console"
+    request_data["simulated_at"] = now
+
+    # Write back
+    table.put_item(
+        Item={
+            "PK": request_item["PK"],
+            "SK": request_item["SK"],
+            "entity": "REQUEST",
+            "data": json.dumps(request_data),
+        }
+    )
+
+    # Record this as an operator action (not an agent action)
+    action_id = f"act_{uuid.uuid4().hex[:8]}"
+    action_data = {
+        "action_id": action_id,
+        "tool_name": "simulate_provider_response",
+        "operator_action": True,
+        "simulated": True,
+        "request_id": request_id,
+        "response_type": response_type,
+        "case_id": request_data.get("case_id"),
+        "created_at": now,
+    }
+
+    table.put_item(
+        Item={
+            "PK": f"CASE#{request_data.get('case_id')}",
+            "SK": f"ACTION#{now}#{uuid.uuid4().hex[:8]}",
+            "entity": "ACTION",
+            "data": json.dumps(action_data),
+        }
+    )
+
+    return {"ok": True, "request_id": request_id, "status": response_type, "simulated": True}
+
+
+def _render_html(cases: list[dict], pending_requests: list[dict] | None = None) -> str:
     """Render the dashboard HTML."""
+    pending_requests = pending_requests or []
 
     # Split cases by state
     awaiting = [c for c in cases if c.get("state") == "AWAITING_DECISION"]
@@ -153,6 +260,39 @@ def _render_html(cases: list[dict]) -> str:
     if not decision_rows:
         decision_rows = '<p class="empty">No cases awaiting decision.</p>'
 
+    # Build pending provider requests section
+    pending_rows = ""
+    for req in pending_requests:
+        req_id = req.get("request_id", "?")
+        provider = req.get("provider_id", "?")
+        case_id = req.get("case_id", "?")
+        sent_at = format_date(req.get("sent_at"))
+        pending_rows += f"""
+        <div class="provider-request-card">
+            <div class="request-header">
+                <strong>Request: <code>{req_id[:16]}</code></strong>
+                <span class="case-id">Case: {case_id[:12]}</span>
+            </div>
+            <div class="request-details">
+                Provider: <strong>{provider}</strong> | Sent: {sent_at}
+            </div>
+            <div class="simulate-controls">
+                <button class="btn btn-confirm" onclick="simulateResponse('{req_id}', 'CONFIRMED')">
+                    Simulate: Provider Confirms
+                </button>
+                <button class="btn btn-decline" onclick="simulateResponse('{req_id}', 'DECLINED')">
+                    Simulate: Provider Declines
+                </button>
+            </div>
+            <div class="simulated-notice">
+                This is a SIMULATED provider response triggered by an operator. Not a real vendor interaction.
+            </div>
+        </div>
+        """
+
+    if not pending_rows:
+        pending_rows = '<p class="empty">No provider requests awaiting response.</p>'
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -221,6 +361,46 @@ def _render_html(cases: list[dict]) -> str:
             color: #856404;
         }}
         .empty {{ color: #7f8c8d; font-style: italic; }}
+        .provider-request-card {{
+            background: #e8f4fd;
+            border: 1px solid #3498db;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }}
+        .request-header {{
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }}
+        .request-details {{ margin-bottom: 10px; color: #555; }}
+        .simulate-controls {{
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }}
+        .btn {{
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 500;
+        }}
+        .btn-confirm {{
+            background: #27ae60;
+            color: white;
+        }}
+        .btn-confirm:hover {{ background: #219a52; }}
+        .btn-decline {{
+            background: #e74c3c;
+            color: white;
+        }}
+        .btn-decline:hover {{ background: #c0392b; }}
+        .btn:disabled {{
+            opacity: 0.5;
+            cursor: not-allowed;
+        }}
         .stats {{
             display: flex;
             gap: 20px;
@@ -260,6 +440,10 @@ def _render_html(cases: list[dict]) -> str:
                     <div class="stat-label">Awaiting Decision</div>
                 </div>
                 <div class="stat">
+                    <div class="stat-value">{len(pending_requests)}</div>
+                    <div class="stat-label">Pending Requests</div>
+                </div>
+                <div class="stat">
                     <div class="stat-value">{len([c for c in cases if c.get('state') == 'CLOSED'])}</div>
                     <div class="stat-label">Closed</div>
                 </div>
@@ -286,12 +470,51 @@ def _render_html(cases: list[dict]) -> str:
             {decision_rows}
         </div>
 
+        <div class="section">
+            <h2>Pending Provider Requests</h2>
+            <p style="color: #7f8c8d; font-size: 0.9em;">
+                Provider requests awaiting response. Use the buttons below to <strong>simulate</strong> a provider response.
+                This is an <strong>operator action</strong> for demonstration purposes.
+            </p>
+            {pending_rows}
+        </div>
+
         <div class="simulated-notice" style="margin-top: 20px;">
             <strong>Notice:</strong> All provider interactions shown are simulated.
-            The 7 providers listed are seeded fixtures for demonstration purposes, not real vendors.
-            This console is read-only.
+            The 6 providers listed are seeded fixtures for demonstration purposes, not real vendors.
         </div>
     </div>
+
+    <script>
+    async function simulateResponse(requestId, responseType) {{
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Processing...';
+
+        try {{
+            const response = await fetch('/api/simulate-provider-response', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ request_id: requestId, response_type: responseType }})
+            }});
+            const result = await response.json();
+
+            if (result.ok) {{
+                alert('Provider response simulated: ' + responseType + '\\n\\nThis was an OPERATOR action, not an agent action. Refresh to see updated state.');
+                location.reload();
+            }} else {{
+                alert('Error: ' + (result.error || 'Unknown error'));
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }}
+        }} catch (e) {{
+            alert('Request failed: ' + e.message);
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }}
+    }}
+    </script>
 </body>
 </html>"""
 
@@ -301,28 +524,81 @@ def _render_html(cases: list[dict]) -> str:
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """Lambda handler for Function URL requests."""
 
-    # Get request path
+    # Get request info
     raw_path = event.get("rawPath", "/")
+    method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
+
+    # CORS headers for all responses
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+    }
+
+    # Handle OPTIONS preflight
+    if method == "OPTIONS":
+        return {"statusCode": 200, "headers": cors_headers, "body": ""}
 
     if raw_path == "/api/cases":
         # JSON API endpoint
         cases = _get_cases()
         return {
             "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-            },
+            "headers": {"Content-Type": "application/json", **cors_headers},
             "body": json.dumps(cases),
         }
+
+    elif raw_path == "/api/pending-requests":
+        # Get pending provider requests
+        pending = _get_pending_requests()
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json", **cors_headers},
+            "body": json.dumps(pending),
+        }
+
+    elif raw_path == "/api/simulate-provider-response" and method == "POST":
+        # Simulate provider response (operator action)
+        try:
+            body = json.loads(event.get("body", "{}"))
+            request_id = body.get("request_id")
+            response_type = body.get("response_type", "CONFIRMED")
+
+            if not request_id:
+                return {
+                    "statusCode": 400,
+                    "headers": {"Content-Type": "application/json", **cors_headers},
+                    "body": json.dumps({"ok": False, "error": "request_id is required"}),
+                }
+
+            if response_type not in ("CONFIRMED", "DECLINED"):
+                return {
+                    "statusCode": 400,
+                    "headers": {"Content-Type": "application/json", **cors_headers},
+                    "body": json.dumps({"ok": False, "error": "response_type must be CONFIRMED or DECLINED"}),
+                }
+
+            result = _simulate_provider_response(request_id, response_type)
+            status_code = 200 if result.get("ok") else 400
+            return {
+                "statusCode": status_code,
+                "headers": {"Content-Type": "application/json", **cors_headers},
+                "body": json.dumps(result),
+            }
+        except Exception as e:
+            return {
+                "statusCode": 500,
+                "headers": {"Content-Type": "application/json", **cors_headers},
+                "body": json.dumps({"ok": False, "error": str(e)}),
+            }
+
     else:
         # HTML dashboard
         cases = _get_cases()
-        html = _render_html(cases)
+        pending_requests = _get_pending_requests()
+        html = _render_html(cases, pending_requests)
         return {
             "statusCode": 200,
-            "headers": {
-                "Content-Type": "text/html; charset=utf-8",
-            },
+            "headers": {"Content-Type": "text/html; charset=utf-8"},
             "body": html,
         }

@@ -33,7 +33,6 @@ from backend.app.agents.budget import check_and_charge, estimate, spent_today
 from backend.app.agents.model import get_model
 from backend.app.tools.case_tools import (
     close_case,
-    confirm_provider_request,
     create_case,
     derive_obligations,
     extract_accommodation_policy,
@@ -51,7 +50,10 @@ log = logging.getLogger(__name__)
 
 PROMPT_FILE = Path(__file__).parent / "prompts" / "orchestrator.md"
 
-# All 13 tools: 12 deterministic, 1 model-bearing
+# All 12 tools: 11 deterministic, 1 model-bearing
+# Note: confirm_provider_request is NOT in this list. The agent cannot
+# manufacture confirmations it later verifies against. Provider responses
+# are triggered by operators via the console, labelled as simulated.
 ALL_TOOLS = [
     # Deterministic (no model call)
     poll_public_meetings,
@@ -61,7 +63,6 @@ ALL_TOOLS = [
     derive_obligations,
     search_providers,
     send_provider_request,
-    confirm_provider_request,  # Simulates provider confirmation (demo)
     request_human_decision,
     verify_fulfillment,
     close_case,
@@ -194,10 +195,21 @@ Agenda URL: {meeting.get('agenda_url', 'None')}
 Process this meeting through to closure:
 1. Create a case for this meeting
 2. Derive the required obligations
-3. Search for providers
-4. Send provider requests (with idempotency keys)
-5. Verify fulfillment
-6. Close the case when verification passes
+3. Fetch the agenda document, then extract the accommodation policy from the
+   text it returns. This is what tells you WHICH accommodations this meeting
+   needs. Do not skip it. There is no default accommodation.
+4. Search for providers matching the accommodations you identified in step 3
+5. Send ONE provider request (with an idempotency key)
+6. Verify fulfillment
+7. Close the case when verification passes
+
+Steps 3 and 4 are not interchangeable and their order is not negotiable. Booking
+a provider for an accommodation you have not established this meeting needs is
+inventing an operational fact.
+
+If the Agenda URL above is None, or if fetching or extracting fails, that is not
+a finding that no accommodations are needed — request a human decision and say
+which step failed.
 
 If you cannot proceed safely at any step, request a human decision."""
 
