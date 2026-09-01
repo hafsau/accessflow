@@ -121,6 +121,9 @@ def fetch_agenda_document(agenda_url: str, max_pages: int = 5) -> dict[str, Any]
     Returns:
         Document metadata including page count, text preview, content hash
     """
+    store = get_store()
+    input_data = {"agenda_url": agenda_url, "max_pages": max_pages}
+
     # Check S3 cache first (Lambda mode)
     if AGENDA_CACHE_ENABLED:
         try:
@@ -134,7 +137,9 @@ def fetch_agenda_document(agenda_url: str, max_pages: int = 5) -> dict[str, Any]
                     fetched_at=datetime.fromisoformat(cached["fetched_at"]),
                     content_hash=cached["content_hash"],
                 )
-                return FetchDocumentResponse(document=doc).model_dump()
+                result = FetchDocumentResponse(document=doc).model_dump()
+                store.record_action("fetch_agenda_document", input_data, result, True)
+                return result
         except Exception:
             pass  # Fall through to fetch
 
@@ -142,9 +147,13 @@ def fetch_agenda_document(agenda_url: str, max_pages: int = 5) -> dict[str, Any]
         resp = httpx.get(agenda_url, timeout=30.0, follow_redirects=True)
         resp.raise_for_status()
     except httpx.HTTPStatusError as e:
-        return _error(ErrorCode.FETCH_FAILED, f"HTTP {e.response.status_code}")
+        result = _error(ErrorCode.FETCH_FAILED, f"HTTP {e.response.status_code}")
+        store.record_action("fetch_agenda_document", input_data, result, False, ErrorCode.FETCH_FAILED.value)
+        return result
     except httpx.RequestError as e:
-        return _error(ErrorCode.FETCH_FAILED, str(e))
+        result = _error(ErrorCode.FETCH_FAILED, str(e))
+        store.record_action("fetch_agenda_document", input_data, result, False, ErrorCode.FETCH_FAILED.value)
+        return result
 
     try:
         from pypdf import PdfReader
@@ -155,7 +164,9 @@ def fetch_agenda_document(agenda_url: str, max_pages: int = 5) -> dict[str, Any]
             text_parts.append(page.extract_text() or "")
         text = "\n".join(text_parts)
     except Exception as e:
-        return _error(ErrorCode.PARSE_FAILED, f"PDF parse error: {e}")
+        result = _error(ErrorCode.PARSE_FAILED, f"PDF parse error: {e}")
+        store.record_action("fetch_agenda_document", input_data, result, False, ErrorCode.PARSE_FAILED.value)
+        return result
 
     content_hash = "sha256:" + hashlib.sha256(resp.content).hexdigest()[:16]
 
@@ -175,7 +186,9 @@ def fetch_agenda_document(agenda_url: str, max_pages: int = 5) -> dict[str, Any]
         content_hash=content_hash,
     )
 
-    return FetchDocumentResponse(document=doc).model_dump()
+    result = FetchDocumentResponse(document=doc).model_dump()
+    store.record_action("fetch_agenda_document", input_data, result, True)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -202,12 +215,16 @@ def search_providers(
         List of matching providers with their details
     """
     store = get_store()
+    input_data = {"service_type": service_type, "jurisdiction": jurisdiction, "date": date, "time": time}
+
     providers = store.search_providers(service_type, jurisdiction)
 
     # Filter to approved only
     providers = [p for p in providers if p.approved]
 
-    return SearchProvidersResponse(providers=providers).model_dump()
+    result = SearchProvidersResponse(providers=providers).model_dump()
+    store.record_action("search_providers", input_data, result, True)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -422,10 +439,13 @@ def verify_fulfillment(case_id: str) -> dict[str, Any]:
         Verification result with per-obligation status
     """
     store = get_store()
+    input_data = {"case_id": case_id}
 
     case = store.get_case(case_id)
     if case is None:
-        return _error(ErrorCode.CASE_NOT_FOUND, f"No case with id {case_id}")
+        result = _error(ErrorCode.CASE_NOT_FOUND, f"No case with id {case_id}")
+        store.record_action("verify_fulfillment", input_data, result, False, ErrorCode.CASE_NOT_FOUND.value, case_id=case_id)
+        return result
 
     # Check each obligation
     obligation_checks = []
@@ -468,7 +488,9 @@ def verify_fulfillment(case_id: str) -> dict[str, Any]:
         case.state = CaseState.VERIFIED
     store.update_case(case)
 
-    return VerifyFulfillmentResponse(verification=verification).model_dump()
+    result = VerifyFulfillmentResponse(verification=verification).model_dump()
+    store.record_action("verify_fulfillment", input_data, result, True, case_id=case_id)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +615,10 @@ def extract_accommodation_policy(
 
     from backend.app.agents.model import get_model
 
+    store = get_store()
+    # Don't log full agenda_text in input_data - just length to avoid huge records
+    input_data = {"body_name": body_name, "jurisdiction": jurisdiction, "agenda_text_length": len(agenda_text)}
+
     prompt = f"""You are an accessibility coordinator analyzing a public meeting agenda.
 
 Meeting: {body_name} ({jurisdiction})
@@ -623,11 +649,13 @@ Reply with JSON only:
             # FAIL CLOSED. An unparseable reply is not evidence that a meeting
             # needs no accommodations. Returning an empty policy here would let a
             # case proceed toward closure on a reasoning step that never happened.
-            return _error(
+            result = _error(
                 ErrorCode.PARSE_FAILED,
                 "model reply contained no JSON object; no accommodation policy was "
                 "produced. This is NOT a finding of 'no accommodations needed'.",
             )
+            store.record_action("extract_accommodation_policy", input_data, result, False, ErrorCode.PARSE_FAILED.value)
+            return result
         else:
             data = json.loads(match.group(0))
             policy = AccommodationPolicy(
@@ -642,13 +670,17 @@ Reply with JSON only:
         # previously became recommended_accommodations=[] with priority MEDIUM —
         # indistinguishable from a real finding of "nothing needed". For an
         # accessibility agent that is the worst available failure mode.
-        return _error(
+        result = _error(
             ErrorCode.PARSE_FAILED,
             f"accommodation analysis did not complete ({type(e).__name__}: {e}). "
             "This is NOT a finding of 'no accommodations needed'.",
         )
+        store.record_action("extract_accommodation_policy", input_data, result, False, ErrorCode.PARSE_FAILED.value)
+        return result
 
-    return ExtractPolicyResponse(policy=policy).model_dump()
+    result = ExtractPolicyResponse(policy=policy).model_dump()
+    store.record_action("extract_accommodation_policy", input_data, result, True)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -738,6 +770,9 @@ def derive_obligations(
     """
     from datetime import timedelta
 
+    store = get_store()
+    input_data = {"event_key": event.get("key"), "population_over_50k": population_over_50k}
+
     # Parse event start time for 35.160 deadline
     event_date = event.get("date", "")
     event_time = event.get("time")
@@ -781,7 +816,9 @@ def derive_obligations(
         },
     ]
 
-    return {"ok": True, "obligations": obligations}
+    result = {"ok": True, "obligations": obligations}
+    store.record_action("derive_obligations", input_data, result, True)
+    return result
 
 
 # ---------------------------------------------------------------------------
