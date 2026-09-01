@@ -25,6 +25,7 @@ from backend.app.models.domain import (
     CaseState,
     CloseCaseResponse,
     DecisionOption,
+    DecisionType,
     Document,
     ErrorCode,
     Event,
@@ -331,7 +332,8 @@ def request_human_decision(
     Args:
         idempotency_key: Unique key to prevent duplicate requests
         case_id: The case this decision is for
-        decision_type: Type of decision (e.g., PROVIDER_SUBSTITUTION)
+        decision_type: Must be one of: PROVIDER_SHORTAGE, PROVIDER_UNAVAILABLE,
+            PROVIDER_SUBSTITUTION, TOOL_ERROR, POLICY_BLOCKED, TURN_LIMIT_EXCEEDED, OTHER
         context: Explanation of why decision is needed
         options: List of options with option_id, description, recommended
         evidence: Supporting evidence for the decision
@@ -362,6 +364,19 @@ def request_human_decision(
         store.record_action(
             "request_human_decision", input_data, result, False,
             ErrorCode.CASE_NOT_FOUND.value, idempotency_key, case_id
+        )
+        return result
+
+    # Validate decision_type against fixed set
+    valid_types = {dt.value for dt in DecisionType}
+    if decision_type not in valid_types:
+        result = _error(
+            ErrorCode.VALIDATION_ERROR,
+            f"Invalid decision_type '{decision_type}'. Must be one of: {', '.join(sorted(valid_types))}"
+        )
+        store.record_action(
+            "request_human_decision", input_data, result, False,
+            ErrorCode.VALIDATION_ERROR.value, idempotency_key, case_id
         )
         return result
 

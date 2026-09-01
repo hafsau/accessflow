@@ -53,6 +53,21 @@ class DecisionStatus(str, Enum):
     EXPIRED = "EXPIRED"
 
 
+class DecisionType(str, Enum):
+    """Valid decision types for request_human_decision.
+
+    The orchestrator may only escalate with one of these types.
+    Model-invented types will be rejected.
+    """
+    PROVIDER_SHORTAGE = "PROVIDER_SHORTAGE"          # No providers serve jurisdiction
+    PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"    # All providers declined/failed
+    PROVIDER_SUBSTITUTION = "PROVIDER_SUBSTITUTION"  # Need to substitute a provider
+    TOOL_ERROR = "TOOL_ERROR"                        # A tool call failed
+    POLICY_BLOCKED = "POLICY_BLOCKED"                # Cedar policy denied action
+    TURN_LIMIT_EXCEEDED = "TURN_LIMIT_EXCEEDED"      # Agent hit turn limit
+    OTHER = "OTHER"                                  # Edge cases (must include context)
+
+
 class Priority(str, Enum):
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
