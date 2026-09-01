@@ -605,12 +605,13 @@ Reply with JSON only:
         raw = str(Agent(model=get_model())(prompt))
         match = re.search(r"\{.*\}", raw, re.S)
         if not match:
-            policy = AccommodationPolicy(
-                recommended_accommodations=[],
-                priority="MEDIUM",
-                reasoning="Could not parse LLM response",
-                quote=None,
-                quote_verified=None,  # ALWAYS None
+            # FAIL CLOSED. An unparseable reply is not evidence that a meeting
+            # needs no accommodations. Returning an empty policy here would let a
+            # case proceed toward closure on a reasoning step that never happened.
+            return _error(
+                ErrorCode.PARSE_FAILED,
+                "model reply contained no JSON object; no accommodation policy was "
+                "produced. This is NOT a finding of 'no accommodations needed'.",
             )
         else:
             data = json.loads(match.group(0))
@@ -622,12 +623,14 @@ Reply with JSON only:
                 quote_verified=None,  # ALWAYS None — verification happens in context_enricher
             )
     except Exception as e:
-        policy = AccommodationPolicy(
-            recommended_accommodations=[],
-            priority="MEDIUM",
-            reasoning=f"Error: {e}",
-            quote=None,
-            quote_verified=None,
+        # FAIL CLOSED. Throttling, timeouts and auth errors all land here. Each
+        # previously became recommended_accommodations=[] with priority MEDIUM —
+        # indistinguishable from a real finding of "nothing needed". For an
+        # accessibility agent that is the worst available failure mode.
+        return _error(
+            ErrorCode.PARSE_FAILED,
+            f"accommodation analysis did not complete ({type(e).__name__}: {e}). "
+            "This is NOT a finding of 'no accommodations needed'.",
         )
 
     return ExtractPolicyResponse(policy=policy).model_dump()
