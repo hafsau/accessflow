@@ -333,6 +333,10 @@ def get_store() -> Store:
 
 
 def reset_store() -> None:
-    """For testing."""
+    """For testing. Clears the singleton so the next get_store() re-reads config.
+
+    Must NOT construct Store() directly — that bypasses the CORE_TABLE switch and
+    silently pins every caller to the in-memory backend regardless of environment.
+    """
     global _store
-    _store = Store()
+    _store = None

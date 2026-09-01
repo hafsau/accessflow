@@ -213,17 +213,28 @@ class DynamoStore:
         return case
 
     def update_case(self, case: Case) -> Case:
+        """Update a case WITHOUT touching the top-level tool_calls attribute.
+
+        Uses update_item, not put_item: put_item replaces the whole item, which
+        would delete tool_calls and let the atomic counter restart from zero.
+        increment_tool_calls() is the only writer of that attribute.
+        "data" is a DynamoDB reserved word, hence the name placeholder.
+        """
         case.updated_at = _now()
-        self._table.put_item(
-            Item={
-                "PK": f"CASE#{case.case_id}",
-                "SK": "META",
-                "entity": "CASE",
-                "data": case.model_dump_json(),
-                "GSI1PK": "CASE",
-                "GSI1SK": case.created_at.isoformat(),
-                "tool_calls": case.tool_calls,
-            }
+        self._table.update_item(
+            Key={"PK": f"CASE#{case.case_id}", "SK": "META"},
+            UpdateExpression=(
+                "SET #data = :data, entity = :entity, "
+                "GSI1PK = :g1, GSI1SK = :g2, updated_at = :now"
+            ),
+            ExpressionAttributeNames={"#data": "data"},
+            ExpressionAttributeValues={
+                ":data": case.model_dump_json(),
+                ":entity": "CASE",
+                ":g1": "CASE",
+                ":g2": case.created_at.isoformat(),
+                ":now": case.updated_at.isoformat(),
+            },
         )
         return case
 
