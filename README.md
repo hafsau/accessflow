@@ -162,16 +162,139 @@ consumption.
 
 ## Quick start
 
-> **Not yet written.** Setup instructions land once the persistence layer is verified end to end.
-> This section must let a stranger get the project running cold before submission.
+### Prerequisites
+
+- **Python 3.12** (tested with 3.12.x)
+- **Node.js 18+** (for AgentCore CLI)
+- **AWS CLI** configured with credentials
+- **AWS account** with Bedrock access in `us-west-2`
+
+### 1. Clone and install dependencies
+
+```bash
+git clone https://github.com/yourusername/accessflow.git
+cd accessflow
+pip install -r requirements.txt
+pip install strands-agents==1.53.0 strands-agents-tools==0.8.6
+```
+
+### 2. Enable Bedrock model access
+
+1. Go to [Amazon Bedrock Console](https://console.aws.amazon.com/bedrock/) in `us-west-2`
+2. Navigate to **Model access** → **Manage model access**
+3. Request access to **Anthropic Claude** models
+4. For first-time Anthropic users: complete the [Anthropic Use Case Form](https://console.aws.amazon.com/bedrock/home#/modelaccess)
+
+### 3. Create DynamoDB table
+
+```bash
+aws dynamodb create-table --region us-west-2 \
+  --table-name accessflow-core \
+  --attribute-definitions \
+      AttributeName=PK,AttributeType=S AttributeName=SK,AttributeType=S \
+      AttributeName=GSI1PK,AttributeType=S AttributeName=GSI1SK,AttributeType=S \
+  --key-schema AttributeName=PK,KeyType=HASH AttributeName=SK,KeyType=RANGE \
+  --billing-mode PAY_PER_REQUEST \
+  --global-secondary-indexes \
+    'IndexName=GSI1,KeySchema=[{AttributeName=GSI1PK,KeyType=HASH},{AttributeName=GSI1SK,KeyType=RANGE}],Projection={ProjectionType=ALL}'
+```
+
+### 4. Seed providers
+
+```bash
+export CORE_TABLE=accessflow-core
+python scripts/seed_providers.py
+```
+
+This seeds 7 simulated providers. These are fixtures for demonstration — not real vendors.
+
+### 5. Run tests
+
+```bash
+# Run offline tests (no AWS required)
+pytest -q
+
+# Run integration tests (requires CORE_TABLE)
+CORE_TABLE=accessflow-core pytest -q
+```
+
+Expected: 127 passed, 6 skipped (integration tests skip without `CORE_TABLE`).
 
 ## Configuration
 
-> **Not yet written.** Environment variables, table creation, IAM policy, provider seeding.
+### Environment variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `CORE_TABLE` | Yes | — | DynamoDB table name for cases/actions |
+| `AWS_REGION` | No | `us-west-2` | AWS region |
+| `MODEL_PROVIDER` | No | `bedrock` | Model backend (`bedrock` or `anthropic`) |
+| `FINGERPRINT_TABLE` | Poller | `accessflow-fingerprints` | Meeting change detection |
+| `BUDGET_TABLE` | Poller | `accessflow-budget` | Daily spend cap tracking |
+| `MEETING_QUEUE_URL` | Poller | — | SQS queue for async processing |
+| `DAILY_USD_CAP` | Poller | `1.50` | Daily spend cap in USD |
+| `AGENTCORE_RUNTIME_ARN` | Worker | — | AgentCore runtime ARN |
+
+### IAM permissions
+
+The AgentCore runtime role needs:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "dynamodb:GetItem",
+    "dynamodb:PutItem",
+    "dynamodb:UpdateItem",
+    "dynamodb:Query"
+  ],
+  "Resource": [
+    "arn:aws:dynamodb:us-west-2:ACCOUNT:table/accessflow-core",
+    "arn:aws:dynamodb:us-west-2:ACCOUNT:table/accessflow-core/index/*"
+  ]
+}
+```
+
+The poller Lambda additionally needs `sqs:SendMessage` and S3/DynamoDB access for fingerprints and budget.
 
 ## Deployment
 
-> **Not yet written.**
+### 1. Deploy AgentCore runtime
+
+```bash
+cd agentcore
+npm install -g @anthropic-ai/agentcore-cli
+agentcore deploy
+```
+
+Note the runtime ARN from the output.
+
+### 2. Deploy Lambda infrastructure
+
+```bash
+cd infrastructure
+sam build
+sam deploy --guided --capabilities CAPABILITY_IAM --region us-west-2
+```
+
+Follow the prompts. Key parameters:
+- **Stack name:** `accessflow-poller`
+- **AgentCoreRuntimeArn:** paste the ARN from step 1
+
+### 3. Verify deployment
+
+```bash
+# Check poller
+aws lambda invoke --function-name accessflow-poller --region us-west-2 /tmp/out.json
+cat /tmp/out.json
+
+# Check console (public URL)
+curl -s "$(aws cloudformation describe-stacks --stack-name accessflow-poller \
+  --query 'Stacks[0].Outputs[?OutputKey==`ConsoleFunctionUrl`].OutputValue' \
+  --output text --region us-west-2)/api/cases" | head -c 200
+```
+
+The poller runs every 15 minutes via EventBridge. Cases appear on the public console after the first poll detects new meetings.
 
 ---
 
