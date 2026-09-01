@@ -13,3 +13,5 @@ poller.pid
 agentcore/.cli/logs/
 agentcore/.cache/
 agentcore/.cli/
+agentcore/.cache/
+agentcore/.cli/
