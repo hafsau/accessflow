@@ -18,10 +18,55 @@ from typing import Any
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 # Structured logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Region and DynamoDB table
+REGION = "us-west-2"
+CORE_TABLE = os.getenv("CORE_TABLE", "accessflow-core")
+
+# Lazy-init DynamoDB table
+_table = None
+
+
+def _get_table():
+    global _table
+    if _table is None:
+        dynamodb = boto3.resource("dynamodb", region_name=REGION)
+        _table = dynamodb.Table(CORE_TABLE)
+    return _table
+
+
+def _check_case_idempotency(meeting_key: str) -> bool:
+    """Check if a case already exists for this meeting.
+
+    Returns True if no case exists (ok to proceed), False if duplicate.
+    Uses conditional write for atomicity.
+    """
+    key = f"case:{meeting_key}"
+    try:
+        table = _get_table()
+        table.put_item(
+            Item={
+                "PK": f"IDEM#{key}",
+                "SK": "META",
+                "entity": "IDEM",
+                "data": json.dumps({
+                    "key": key,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }),
+            },
+            ConditionExpression="attribute_not_exists(PK)",
+        )
+        return True  # New key, proceed
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False  # Duplicate, skip
+        raise
+
 
 # AgentCore runtime ARN
 AGENTCORE_RUNTIME_ARN = os.getenv(
@@ -31,7 +76,6 @@ AGENTCORE_RUNTIME_ARN = os.getenv(
 
 # Extract runtime ID from ARN
 RUNTIME_ID = AGENTCORE_RUNTIME_ARN.split("/")[-1] if AGENTCORE_RUNTIME_ARN else ""
-REGION = "us-west-2"
 
 # Lazy-init session
 _session = None
@@ -136,9 +180,25 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "agenda_url": body.get("agenda_url"),
         }
 
+        meeting_key = meeting.get("key")
+
+        # Idempotency check: skip if case already exists for this meeting
+        if not _check_case_idempotency(meeting_key):
+            _log_structured(
+                "skipped_duplicate",
+                meeting_key=meeting_key,
+                reason="case already exists",
+            )
+            results.append({
+                "meeting_key": meeting_key,
+                "success": True,
+                "skipped": True,
+            })
+            continue
+
         result = _invoke_agentcore(meeting)
         results.append({
-            "meeting_key": meeting.get("key"),
+            "meeting_key": meeting_key,
             **result
         })
 
