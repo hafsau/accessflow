@@ -172,18 +172,23 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         body = json.loads(record.get("body", "{}"))
 
         # Build meeting dict from SQS message
+        change_type = body.get("change_type", "new_meeting")
         meeting = {
             "key": body.get("meeting_key"),
             "body_name": body.get("body_name"),
             "date": body.get("date"),
             "time": body.get("time"),
             "agenda_url": body.get("agenda_url"),
+            "change_type": change_type,  # Pass to agent for prompt selection
+            "case_id": body.get("case_id"),  # For provider_confirmed flow
         }
 
         meeting_key = meeting.get("key")
 
         # Idempotency check: skip if case already exists for this meeting
-        if not _check_case_idempotency(meeting_key):
+        # EXCEPTION: provider_confirmed re-queues should always invoke agent
+        # to run verify_fulfillment and close_case
+        if change_type != "provider_confirmed" and not _check_case_idempotency(meeting_key):
             _log_structured(
                 "skipped_duplicate",
                 meeting_key=meeting_key,
@@ -195,6 +200,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "skipped": True,
             })
             continue
+
+        if change_type == "provider_confirmed":
+            _log_structured(
+                "reprocessing_for_completion",
+                meeting_key=meeting_key,
+                reason="provider confirmed, invoking agent to verify and close",
+            )
 
         result = _invoke_agentcore(meeting)
         results.append({

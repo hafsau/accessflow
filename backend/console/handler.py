@@ -21,6 +21,8 @@ from typing import Any
 import boto3
 from boto3.dynamodb.conditions import Key
 
+from . import render
+
 # DynamoDB table
 CORE_TABLE = os.getenv("CORE_TABLE", "accessflow-core")
 REGION = os.getenv("AWS_REGION", "us-west-2")
@@ -99,6 +101,148 @@ def _get_pending_requests() -> list[dict[str, Any]]:
     return pending
 
 
+def _get_events(cases: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Query EVENT items for each distinct event_id in cases.
+
+    Args:
+        cases: List of case dicts
+
+    Returns:
+        Dict keyed by event_id with event data
+    """
+    table = _get_table()
+    events: dict[str, dict[str, Any]] = {}
+
+    # Get distinct event_ids
+    event_ids = {str(c.get("event_id")) for c in cases if c.get("event_id")}
+
+    for event_id in event_ids:
+        # Query PK = EVENT#<event_id>, SK = META
+        response = table.query(
+            KeyConditionExpression="PK = :pk AND SK = :sk",
+            ExpressionAttributeValues={":pk": f"EVENT#{event_id}", ":sk": "META"},
+        )
+        items = response.get("Items", [])
+        if items:
+            item = items[0]
+            if "data" in item:
+                event_data = json.loads(item["data"]) if isinstance(item["data"], str) else item["data"]
+                events[event_id] = event_data
+
+    return events
+
+
+def _get_actions(cases: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Query ACTION items for each case.
+
+    Args:
+        cases: List of case dicts
+
+    Returns:
+        Dict keyed by case_id with list of action dicts
+    """
+    table = _get_table()
+    actions: dict[str, list[dict[str, Any]]] = {}
+
+    for case in cases:
+        case_id = str(case.get("case_id") or "")
+        if not case_id:
+            continue
+
+        response = table.query(
+            KeyConditionExpression=Key("PK").eq(f"CASE#{case_id}") & Key("SK").begins_with("ACTION#"),
+        )
+
+        case_actions = []
+        for item in response.get("Items", []):
+            if "data" in item:
+                action_data = json.loads(item["data"]) if isinstance(item["data"], str) else item["data"]
+                case_actions.append(action_data)
+
+        actions[case_id] = case_actions
+
+    return actions
+
+
+def _requeue_case_for_agent(case_id: str, table: Any) -> bool:
+    """Re-queue a case for AgentCore processing.
+
+    After a provider confirms, the agent needs to run verify_fulfillment and
+    close_case. This function pushes the meeting back onto the SQS queue so
+    the worker Lambda invokes the agent.
+
+    Args:
+        case_id: The case to re-queue
+        table: DynamoDB table resource
+
+    Returns:
+        True if queued successfully, False otherwise
+    """
+    import boto3
+
+    queue_url = os.getenv("MEETING_QUEUE_URL")
+    if not queue_url:
+        return False
+
+    # Get the case to find the event_key
+    # Case data is stored with SK = "META" (single-table design)
+    case_response = table.query(
+        KeyConditionExpression="PK = :pk AND SK = :sk",
+        ExpressionAttributeValues={":pk": f"CASE#{case_id}", ":sk": "META"},
+    )
+
+    if not case_response.get("Items"):
+        return False
+
+    case_item = case_response["Items"][0]
+    case_data = json.loads(case_item["data"]) if isinstance(case_item.get("data"), str) else case_item.get("data", {})
+    event_key = case_data.get("event_id")
+
+    if not event_key:
+        return False
+
+    # Get the event to build the meeting message
+    event_response = table.query(
+        KeyConditionExpression="PK = :pk",
+        ExpressionAttributeValues={":pk": f"EVENT#{event_key}"},
+    )
+
+    if not event_response.get("Items"):
+        # Fall back to minimal message
+        message = {
+            "meeting_key": event_key,
+            "body_name": case_data.get("body_name", "Unknown"),
+            "date": case_data.get("event_date", ""),
+            "time": None,
+            "agenda_url": None,
+            "change_type": "provider_confirmed",
+            "case_id": case_id,  # Include case_id for agent to use directly
+        }
+    else:
+        event_item = event_response["Items"][0]
+        event_data = json.loads(event_item["data"]) if isinstance(event_item.get("data"), str) else event_item.get("data", {})
+        message = {
+            "meeting_key": event_key,
+            "body_name": event_data.get("body_name", case_data.get("body_name", "Unknown")),
+            "date": event_data.get("date", case_data.get("event_date", "")),
+            "time": event_data.get("time"),
+            "agenda_url": event_data.get("agenda_url"),
+            "change_type": "provider_confirmed",
+            "case_id": case_id,  # Include case_id for agent to use directly
+        }
+
+    # Send to SQS
+    try:
+        sqs = boto3.client("sqs")
+        sqs.send_message(
+            QueueUrl=queue_url,
+            MessageBody=json.dumps(message),
+        )
+        return True
+    except Exception:
+        return False
+
+
 def _simulate_provider_response(request_id: str, response_type: str = "CONFIRMED") -> dict[str, Any]:
     """Simulate a provider response (confirmation or decline).
 
@@ -156,6 +300,7 @@ def _simulate_provider_response(request_id: str, response_type: str = "CONFIRMED
 
     # Record this as an operator action (not an agent action)
     action_id = f"act_{uuid.uuid4().hex[:8]}"
+    case_id = request_data.get("case_id")
     action_data = {
         "action_id": action_id,
         "tool_name": "simulate_provider_response",
@@ -163,371 +308,36 @@ def _simulate_provider_response(request_id: str, response_type: str = "CONFIRMED
         "simulated": True,
         "request_id": request_id,
         "response_type": response_type,
-        "case_id": request_data.get("case_id"),
+        "case_id": case_id,
         "created_at": now,
     }
 
     table.put_item(
         Item={
-            "PK": f"CASE#{request_data.get('case_id')}",
+            "PK": f"CASE#{case_id}",
             "SK": f"ACTION#{now}#{uuid.uuid4().hex[:8]}",
             "entity": "ACTION",
             "data": json.dumps(action_data),
         }
     )
 
+    # Re-queue the case for AgentCore so it can verify and close
+    # Only re-queue on CONFIRMED (declined cases need human decision)
+    if response_type == "CONFIRMED":
+        _requeue_case_for_agent(case_id, table)
+
     return {"ok": True, "request_id": request_id, "status": response_type, "simulated": True}
 
 
-def _render_html(cases: list[dict], pending_requests: list[dict] | None = None) -> str:
-    """Render the dashboard HTML."""
-    pending_requests = pending_requests or []
-
-    # Split cases by state
-    awaiting = [c for c in cases if c.get("state") == "AWAITING_DECISION"]
-    other = [c for c in cases if c.get("state") != "AWAITING_DECISION"]
-
-    def format_date(iso: str | None) -> str:
-        if not iso:
-            return "—"
-        try:
-            dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-            return dt.strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            return iso[:16] if len(iso) > 16 else iso
-
-    def format_obligations(obs: list) -> str:
-        if not obs:
-            return "—"
-        return ", ".join(o.get("category", "?").replace("_", " ").title() for o in obs)
-
-    def state_badge(state: str) -> str:
-        colors = {
-            "AWAITING_DECISION": "badge-warning",
-            "IN_PROGRESS": "badge-info",
-            "CLOSED": "badge-success",
-            "CANCELLED": "badge-secondary",
-        }
-        cls = colors.get(state, "badge-secondary")
-        return f'<span class="badge {cls}">{state}</span>'
-
-    # Build case rows for main table
-    case_rows = ""
-    for c in cases:
-        case_rows += f"""
-        <tr>
-            <td><code>{c.get('case_id', '?')[:12]}</code></td>
-            <td>{c.get('event_id', '?')}</td>
-            <td>{state_badge(c.get('state', '?'))}</td>
-            <td>{format_obligations(c.get('obligations', []))}</td>
-            <td>{format_date(c.get('created_at'))}</td>
-        </tr>
-        """
-
-    # Build decision queue
-    decision_rows = ""
-    for c in awaiting:
-        decision = _get_case_decision(c.get("case_id", ""))
-        options_html = ""
-        if decision and decision.get("options"):
-            for opt in decision.get("options", []):
-                description = opt.get("description", "No description")
-                recommended = opt.get("recommended", False)
-                rec_badge = ' <span class="recommended">[RECOMMENDED]</span>' if recommended else ''
-                options_html += f'<div class="option">{description}{rec_badge}</div>'
-        else:
-            options_html = '<div class="option">No options computed yet</div>'
-
-        decision_rows += f"""
-        <div class="decision-card">
-            <div class="decision-header">
-                <strong>{c.get('event_id', '?')}</strong>
-                <span class="case-id">Case: {c.get('case_id', '?')[:12]}</span>
-            </div>
-            <div class="obligations">
-                Obligations: {format_obligations(c.get('obligations', []))}
-            </div>
-            <div class="options-list">
-                <strong>Available Options:</strong>
-                {options_html}
-            </div>
-            <div class="simulated-notice">
-                Providers are seeded fixtures, not real vendors. All interactions are simulated.
-            </div>
-        </div>
-        """
-
-    if not decision_rows:
-        decision_rows = '<p class="empty">No cases awaiting decision.</p>'
-
-    # Build pending provider requests section
-    pending_rows = ""
-    for req in pending_requests:
-        req_id = req.get("request_id", "?")
-        provider = req.get("provider_id", "?")
-        case_id = req.get("case_id", "?")
-        sent_at = format_date(req.get("sent_at"))
-        pending_rows += f"""
-        <div class="provider-request-card">
-            <div class="request-header">
-                <strong>Request: <code>{req_id[:16]}</code></strong>
-                <span class="case-id">Case: {case_id[:12]}</span>
-            </div>
-            <div class="request-details">
-                Provider: <strong>{provider}</strong> | Sent: {sent_at}
-            </div>
-            <div class="simulate-controls">
-                <button class="btn btn-confirm" onclick="simulateResponse('{req_id}', 'CONFIRMED')">
-                    Simulate: Provider Confirms
-                </button>
-                <button class="btn btn-decline" onclick="simulateResponse('{req_id}', 'DECLINED')">
-                    Simulate: Provider Declines
-                </button>
-            </div>
-            <div class="simulated-notice">
-                This is a SIMULATED provider response triggered by an operator. Not a real vendor interaction.
-            </div>
-        </div>
-        """
-
-    if not pending_rows:
-        pending_rows = '<p class="empty">No provider requests awaiting response.</p>'
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AccessFlow Operations Console</title>
-    <style>
-        * {{ box-sizing: border-box; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: #f5f5f5;
-            color: #333;
-        }}
-        .container {{ max-width: 1200px; margin: 0 auto; }}
-        h1 {{ color: #2c3e50; margin-bottom: 5px; }}
-        .subtitle {{ color: #7f8c8d; margin-bottom: 20px; }}
-        .section {{ background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-        h2 {{ color: #34495e; margin-top: 0; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
-        table {{ width: 100%; border-collapse: collapse; }}
-        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #eee; }}
-        th {{ background: #f8f9fa; font-weight: 600; color: #2c3e50; }}
-        tr:hover {{ background: #f8f9fa; }}
-        code {{ background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }}
-        .badge {{
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-weight: 500;
-        }}
-        .badge-warning {{ background: #fff3cd; color: #856404; }}
-        .badge-info {{ background: #d1ecf1; color: #0c5460; }}
-        .badge-success {{ background: #d4edda; color: #155724; }}
-        .badge-secondary {{ background: #e2e3e5; color: #383d41; }}
-        .decision-card {{
-            background: #fffbf0;
-            border: 1px solid #ffc107;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }}
-        .decision-header {{
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }}
-        .case-id {{ color: #7f8c8d; font-size: 0.9em; }}
-        .obligations {{ margin-bottom: 10px; color: #555; }}
-        .options-list {{ margin-top: 10px; }}
-        .option {{
-            background: white;
-            padding: 8px 12px;
-            margin: 5px 0;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-            font-size: 0.9em;
-        }}
-        .recommended {{
-            color: #155724;
-            background: #d4edda;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.85em;
-            font-weight: bold;
-            margin-left: 8px;
-        }}
-        .simulated-notice {{
-            margin-top: 10px;
-            padding: 8px;
-            background: #fff3cd;
-            border-radius: 4px;
-            font-size: 0.8em;
-            color: #856404;
-        }}
-        .empty {{ color: #7f8c8d; font-style: italic; }}
-        .provider-request-card {{
-            background: #e8f4fd;
-            border: 1px solid #3498db;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }}
-        .request-header {{
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }}
-        .request-details {{ margin-bottom: 10px; color: #555; }}
-        .simulate-controls {{
-            display: flex;
-            gap: 10px;
-            margin: 10px 0;
-        }}
-        .btn {{
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.9em;
-            font-weight: 500;
-        }}
-        .btn-confirm {{
-            background: #27ae60;
-            color: white;
-        }}
-        .btn-confirm:hover {{ background: #219a52; }}
-        .btn-decline {{
-            background: #e74c3c;
-            color: white;
-        }}
-        .btn-decline:hover {{ background: #c0392b; }}
-        .btn:disabled {{
-            opacity: 0.5;
-            cursor: not-allowed;
-        }}
-        .stats {{
-            display: flex;
-            gap: 20px;
-            margin-bottom: 15px;
-        }}
-        .stat {{
-            background: #e8f4fd;
-            padding: 10px 15px;
-            border-radius: 6px;
-        }}
-        .stat-value {{ font-size: 1.5em; font-weight: bold; color: #2c3e50; }}
-        .stat-label {{ font-size: 0.9em; color: #7f8c8d; }}
-        .api-link {{
-            float: right;
-            color: #3498db;
-            text-decoration: none;
-            font-size: 0.9em;
-        }}
-        .api-link:hover {{ text-decoration: underline; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>AccessFlow Operations Console</h1>
-        <p class="subtitle">Real-time accessibility accommodation case management</p>
-
-        <div class="section">
-            <a href="/api/cases" class="api-link">JSON API &rarr;</a>
-            <h2>Dashboard</h2>
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-value">{len(cases)}</div>
-                    <div class="stat-label">Total Cases</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">{len(awaiting)}</div>
-                    <div class="stat-label">Awaiting Decision</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">{len(pending_requests)}</div>
-                    <div class="stat-label">Pending Requests</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">{len([c for c in cases if c.get('state') == 'CLOSED'])}</div>
-                    <div class="stat-label">Closed</div>
-                </div>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Case ID</th>
-                        <th>Event</th>
-                        <th>State</th>
-                        <th>Obligations</th>
-                        <th>Created</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {case_rows if case_rows else '<tr><td colspan="5" class="empty">No cases yet.</td></tr>'}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="section">
-            <h2>Decision Queue</h2>
-            <p style="color: #7f8c8d; font-size: 0.9em;">Cases requiring human review before accommodation fulfillment.</p>
-            {decision_rows}
-        </div>
-
-        <div class="section">
-            <h2>Pending Provider Requests</h2>
-            <p style="color: #7f8c8d; font-size: 0.9em;">
-                Provider requests awaiting response. Use the buttons below to <strong>simulate</strong> a provider response.
-                This is an <strong>operator action</strong> for demonstration purposes.
-            </p>
-            {pending_rows}
-        </div>
-
-        <div class="simulated-notice" style="margin-top: 20px;">
-            <strong>Notice:</strong> All provider interactions shown are simulated.
-            The 6 providers listed are seeded fixtures for demonstration purposes, not real vendors.
-        </div>
-    </div>
-
-    <script>
-    async function simulateResponse(requestId, responseType) {{
-        const btn = event.target;
-        const originalText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = 'Processing...';
-
-        try {{
-            const response = await fetch('/api/simulate-provider-response', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ request_id: requestId, response_type: responseType }})
-            }});
-            const result = await response.json();
-
-            if (result.ok) {{
-                alert('Provider response simulated: ' + responseType + '\\n\\nThis was an OPERATOR action, not an agent action. Refresh to see updated state.');
-                location.reload();
-            }} else {{
-                alert('Error: ' + (result.error || 'Unknown error'));
-                btn.disabled = false;
-                btn.textContent = originalText;
-            }}
-        }} catch (e) {{
-            alert('Request failed: ' + e.message);
-            btn.disabled = false;
-            btn.textContent = originalText;
-        }}
-    }}
-    </script>
-</body>
-</html>"""
-
-    return html
+def _render_html(
+    cases: list[dict],
+    pending_requests: list[dict] | None = None,
+    events: dict[str, dict] | None = None,
+    decisions: dict[str, dict] | None = None,
+    actions: dict[str, list[dict]] | None = None,
+) -> str:
+    """Render the dashboard HTML using the render module."""
+    return render.page(cases, pending_requests, events, decisions, actions)
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -605,7 +415,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # HTML dashboard
         cases = _get_cases()
         pending_requests = _get_pending_requests()
-        html = _render_html(cases, pending_requests)
+        events = _get_events(cases)
+        decisions = {
+            str(c.get("case_id")): _get_case_decision(str(c.get("case_id")))
+            for c in cases
+            if c.get("state") == "AWAITING_DECISION"
+        }
+        actions = _get_actions(cases)
+        html = _render_html(cases, pending_requests, events, decisions, actions)
         return {
             "statusCode": 200,
             "headers": {"Content-Type": "text/html; charset=utf-8"},

@@ -132,6 +132,7 @@ Resources:
       Environment:
         Variables:
           CORE_TABLE: accessflow-core
+          MEETING_QUEUE_URL: !Ref MeetingQueue
       Policies:
         - Statement:
             - Effect: Allow
@@ -144,6 +145,11 @@ Resources:
               Resource:
                 - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core
                 - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core/index/*
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource: !GetAtt MeetingQueue.Arn
       FunctionUrlConfig:
         AuthType: NONE  # Public, no credentials required
 

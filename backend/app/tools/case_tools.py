@@ -571,6 +571,11 @@ def close_case(
     # Consume idempotency key and close
     store.check_idempotency(idempotency_key)
 
+    # Mark each obligation as fulfilled with verification evidence
+    for obl in case.obligations:
+        obl.fulfilled = True
+        obl.evidence = verification_id
+
     case.state = CaseState.CLOSED
     case.verification_id = verification_id
     store.update_case(case)

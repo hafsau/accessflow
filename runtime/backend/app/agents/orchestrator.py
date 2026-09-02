@@ -177,14 +177,36 @@ def run_case(
 
     Args:
         agent: The orchestrator agent
-        meeting: Meeting dict from poll_public_meetings
+        meeting: Meeting dict from poll_public_meetings (may include change_type)
         budgeted_model: The budgeted model wrapper for tracking
 
     Returns:
         dict with case_id, final_state, verification_passed, model_calls, spent_usd
     """
-    # Build the initial prompt for this meeting
-    prompt = f"""A new meeting has arrived from the live feed:
+    change_type = meeting.get("change_type", "new_meeting")
+
+    # Build the initial prompt based on change_type
+    if change_type == "provider_confirmed":
+        # Completion flow: provider confirmed, verify and close
+        case_id = meeting.get("case_id", "unknown")
+        prompt = f"""A provider has confirmed for a meeting. Complete the case.
+
+Case ID: {case_id}
+Meeting Key: {meeting['key']}
+Body: {meeting['body_name']}
+Date: {meeting['date']}
+Time: {meeting.get('time', 'Not specified')}
+
+The provider has confirmed. Now:
+1. Call get_case with case_id="{case_id}" to retrieve the case
+2. Call verify_fulfillment on that case
+3. If verification passes, call close_case
+4. If verification fails, request a human decision explaining what is still missing
+
+Do NOT create a new case. The case already exists."""
+    else:
+        # Normal flow: new meeting or other changes
+        prompt = f"""A new meeting has arrived from the live feed:
 
 Meeting Key: {meeting['key']}
 Body: {meeting['body_name']}
