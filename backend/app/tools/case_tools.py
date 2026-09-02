@@ -447,6 +447,16 @@ def verify_fulfillment(case_id: str) -> dict[str, Any]:
         store.record_action("verify_fulfillment", input_data, result, False, ErrorCode.CASE_NOT_FOUND.value, case_id=case_id)
         return result
 
+    # Empty obligation set cannot verify — there is nothing to verify
+    if not case.obligations:
+        result = _error(
+            ErrorCode.VERIFICATION_FAILED,
+            "no obligations derived for this case; there is nothing to verify. "
+            "This is NOT a finding that the case is compliant.",
+        )
+        store.record_action("verify_fulfillment", input_data, result, False, ErrorCode.VERIFICATION_FAILED.value, case_id=case_id)
+        return result
+
     # Check each obligation
     obligation_checks = []
     all_fulfilled = True

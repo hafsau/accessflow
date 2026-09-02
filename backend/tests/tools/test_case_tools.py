@@ -641,3 +641,21 @@ class TestDeriveObligations:
 
         assert result["ok"] is True
         assert len(result["obligations"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# verify_fulfillment
+# ---------------------------------------------------------------------------
+
+
+def test_verify_fulfillment_denies_empty_obligation_set():
+    """An empty obligation list must not verify vacuously.
+
+    This is the invariant the product is built on: a case cannot close without
+    verified evidence. An empty set has no evidence, so it cannot pass.
+    """
+    store = get_store()
+    case = store.create_case(event_id="pytest:empty", obligations=[])
+    result = verify_fulfillment(case_id=case.case_id)
+    assert result.get("ok") is False
+    assert result.get("error_code") == "VERIFICATION_FAILED"
