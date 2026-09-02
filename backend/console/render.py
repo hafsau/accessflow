@@ -118,7 +118,9 @@ def deadline_phrase(raw: Any, fulfilled: bool = False) -> tuple[str, str]:
         return (f"{int(days)}d left", "urgent")
     if days <= 14:
         return (f"{int(days)}d left", "soon")
-    return (dt.strftime("%-d %b"), "distant")
+    # Include year if not the current year
+    fmt = "%-d %b" if dt.year == _now().year else "%-d %b %Y"
+    return (dt.strftime(fmt), "distant")
 
 
 CSS = """
@@ -301,7 +303,7 @@ summary:hover{background:var(--sunk)}
   border-radius:50%;background:var(--ink-3);border:2px solid var(--raised)}
 .trace li.ok::before{background:var(--green)}
 .trace li.err::before{background:var(--red)}
-.trace li.model::before{background:var(--amber);border-radius:1px;transform:rotate(45deg)}
+.trace li.model::before{background:var(--amber);border-radius:50%;box-shadow:0 0 0 2px var(--amber)}
 .trace .tn{display:block;line-height:1.35}
 .trace .tm{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.6875rem;
   color:var(--ink-3)}
@@ -517,8 +519,7 @@ def _case_file(case, event, actions, decision, is_open=False):
             f' — {esc(lbl)}</span></li>'
         )
 
-    kv = [f"<b>case</b> {cid}", f"<b>event</b> {esc(case.get('event_id'))}",
-          f"<b>tool calls</b> {esc(case.get('tool_calls') or 0)}"]
+    kv = [f"<b>case</b> {cid}", f"<b>event</b> {esc(case.get('event_id'))}"]
     if case.get("verification_id"):
         kv.append(f"<b>verification</b> {esc(case.get('verification_id'))}")
     if ev.get("agenda_url"):
@@ -696,10 +697,7 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
 <section id="docket">
   <div class="head">
     <div><h2>The docket</h2>
-      <p class="note">Every bar starts at the red NOW line: its length is the time left before the
-      §35.160 notice deadline, or — hatched, to the left — how far that deadline has already overrun.
-      The hairline runs on to the meeting itself. §35.200 conformance deadlines fall in 2027 and would flatten this
-      scale, so they are carried in the case files instead.</p></div>
+      <p class="note">Every bar starts at the red NOW line; hatched bars to the left have overrun.</p></div>
     <span class="tag">{len(live)} live cases</span>
   </div>
   <div class="docket">
