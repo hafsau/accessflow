@@ -679,6 +679,9 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
 <header class="mast">
   <div>
     <h1>AccessFlow<br><span class="sub">The Deadline Docket</span></h1>
+    <p class="standfirst">AccessFlow is an autonomous agent that watches public meeting calendars,
+    works out what each meeting owes under federal accessibility law, and arranges it before the
+    deadline — without waiting for anyone to ask.</p>
     <p>A public body schedules a meeting. Federal law already requires it to furnish auxiliary
     aids for that meeting — since 1991, no phase-in, no request needed. Every case below is a
     real meeting, its obligations, and the time left to meet them.</p>
@@ -762,7 +765,8 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
     Strands Agents SDK on Amazon Bedrock AgentCore. Cedar policy as the authority layer —
     the agent cannot close a case it did not verify.</div>
   <div><h3>Data</h3>
-    Live Legistar public APIs, no key required. <a href="/api/cases">JSON</a></div>
+    Live Legistar public APIs, no key required. <a href="/api/cases">JSON</a> ·
+    <a href="https://github.com/hafsa-usmani/accessflow" rel="noopener">GitHub</a></div>
 </footer>
 
 </div>
