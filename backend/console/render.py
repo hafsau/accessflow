@@ -764,7 +764,7 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
     the agent cannot close a case it did not verify.</div>
   <div><h3>Data</h3>
     Live Legistar public APIs, no key required. <a href="/api/cases">JSON</a> ·
-    <a href="https://github.com/hafsa-usmani/accessflow" rel="noopener">GitHub</a></div>
+    <a href="https://github.com/hafsau/accessflow" rel="noopener">GitHub</a></div>
 </footer>
 
 </div>
