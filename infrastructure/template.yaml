@@ -138,6 +138,9 @@ Resources:
               Action:
                 - dynamodb:GetItem
                 - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:UpdateItem
+                - dynamodb:PutItem
               Resource:
                 - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core
                 - arn:aws:dynamodb:us-west-2:684589295815:table/accessflow-core/index/*

@@ -231,10 +231,10 @@ def _render_html(cases: list[dict], pending_requests: list[dict] | None = None) 
         options_html = ""
         if decision and decision.get("options"):
             for opt in decision.get("options", []):
-                provider = opt.get("provider_id", "?")
-                service = opt.get("service_type", "?")
-                score = opt.get("score", 0)
-                options_html += f'<div class="option">Provider: {provider} | Service: {service} | Score: {score:.1f}</div>'
+                description = opt.get("description", "No description")
+                recommended = opt.get("recommended", False)
+                rec_badge = ' <span class="recommended">[RECOMMENDED]</span>' if recommended else ''
+                options_html += f'<div class="option">{description}{rec_badge}</div>'
         else:
             options_html = '<div class="option">No options computed yet</div>'
 
@@ -351,6 +351,15 @@ def _render_html(cases: list[dict], pending_requests: list[dict] | None = None) 
             border-radius: 4px;
             border: 1px solid #ddd;
             font-size: 0.9em;
+        }}
+        .recommended {{
+            color: #155724;
+            background: #d4edda;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-left: 8px;
         }}
         .simulated-notice {{
             margin-top: 10px;
