@@ -498,7 +498,7 @@ def _trace_html(actions):
     return f'<ol class="trace">{"".join(items)}</ol>'
 
 
-def _case_file(case, event, actions, decision):
+def _case_file(case, event, actions, decision, is_open=False):
     ev = event or {}
     cid = esc(case.get("case_id"))
     body = ev.get("body_name") or case.get("event_id")
@@ -526,15 +526,10 @@ def _case_file(case, event, actions, decision):
 
     dec = ""
     if decision and decision.get("options"):
-        opts = "".join(
-            '<li class="opt{r}">{t}<span>{d}</span></li>'.format(
-                r=" rec" if o.get("recommended") else "",
-                t='<span class="r">Recommended</span>' if o.get("recommended") else "",
-                d=esc(o.get("description") or o.get("option_id") or "—"))
-            for o in decision["options"])
-        dec = f'<h4 style="margin-top:1.3rem">Awaiting your decision</h4><ul class="opts">{opts}</ul>'
+        dec = '<p class="kv" style="margin-top:1rem"><a href="#awaiting">See decision options ↑</a></p>'
 
-    return f"""<details id="f-{cid}">
+    open_attr = " open" if is_open else ""
+    return f"""<details id="f-{cid}"{open_attr}>
   <summary>
     <span class="sum-t">{esc(body)} <span class="kv">· {esc(when)} · {esc(JURISDICTIONS.get(client, client))}</span></span>
     <span class="pill p-{esc(state.lower())}">{esc(STATE_LABELS.get(state, state))}</span>
@@ -543,8 +538,6 @@ def _case_file(case, event, actions, decision):
     <div>
       <h4>What the agent did</h4>
       {_trace_html(actions)}
-      <p class="kv" style="margin-top:.9rem">Each step records a content hash rather than the content —
-      tamper-evident, and it keeps meeting data out of the audit log.</p>
     </div>
     <div>
       <h4>Obligations</h4>
@@ -615,10 +608,30 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
         f'<div class="tick{" month" if first else ""}" style="left:{p:.3f}%">{esc(lbl)}</div>'
         for p, lbl, first in _ticks(lo, hi))
 
+    # Decide which case files to open: one closed-and-verified, one escalated, one missed
+    open_cases = set()
+    for c in cases:
+        state = c.get("state")
+        if state == "CLOSED" and c.get("verification_passed") and len(open_cases) < 3:
+            open_cases.add(c.get("case_id"))
+            break
+    for c in cases:
+        if c.get("state") == "AWAITING_DECISION" and len(open_cases) < 3:
+            open_cases.add(c.get("case_id"))
+            break
+    for c in cases:
+        obl = _notice_obl(c) or {}
+        if obl and not obl.get("fulfilled") and c.get("state") not in ("CLOSED", "CANCELLED"):
+            _, kind = deadline_phrase(obl.get("deadline"))
+            if kind == "missed":
+                open_cases.add(c.get("case_id"))
+                break
+
     files = "".join(
         _case_file(c, events.get(str(c.get("event_id"))),
                    actions.get(str(c.get("case_id"))) or [],
-                   decisions.get(str(c.get("case_id"))))
+                   decisions.get(str(c.get("case_id"))),
+                   is_open=c.get("case_id") in open_cases)
         for c in sorted(cases, key=sort_key))
 
     awaiting = [c for c in cases if c.get("state") == "AWAITING_DECISION"]
@@ -704,7 +717,7 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
   </div>
 </section>
 
-<section>
+<section id="awaiting">
   <div class="head">
     <div><h2>Awaiting a human</h2>
       <p class="note">The agent stops rather than guessing. These are the cases it will not
@@ -732,7 +745,7 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
   <div class="head">
     <div><h2>Case files</h2>
       <p class="note">What the agent actually did, step by step, with timestamps and content
-      hashes. Diamonds mark the one step that uses the model's judgement.</p></div>
+      hashes. Each step records a content hash rather than the content — tamper-evident.</p></div>
     <span class="tag">{len(cases)} cases</span>
   </div>
   {files}
