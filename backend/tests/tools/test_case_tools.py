@@ -642,6 +642,40 @@ class TestDeriveObligations:
         assert result["ok"] is True
         assert len(result["obligations"]) == 2
 
+    def test_35160_deadline_strictly_before_meeting(self):
+        """§35.160 deadline must always be strictly before the meeting.
+
+        This is the core claim: accommodation must be arranged in advance.
+        A deadline at or after the meeting is a logic error that has already
+        been shipped (case_385d4c54 had deadline 5 days after).
+        """
+        from datetime import datetime, timezone
+
+        # Test with time
+        event_with_time = {"date": "2026-09-08", "time": "2:00 PM"}
+        result = derive_obligations(event_with_time, population_over_50k=True)
+        deadline_35160 = None
+        for obl in result["obligations"]:
+            if obl["basis"] == "28 CFR 35.160":
+                deadline_35160 = obl["deadline"]
+                break
+        assert deadline_35160 is not None
+        # Parse meeting datetime and deadline
+        meeting_dt = datetime(2026, 9, 8, 14, 0, tzinfo=timezone.utc)
+        deadline_dt = datetime.fromisoformat(deadline_35160)
+        assert deadline_dt < meeting_dt, f"35.160 deadline {deadline_dt} must be before meeting {meeting_dt}"
+
+        # Test without time (date only)
+        event_date_only = {"date": "2026-09-08"}
+        result = derive_obligations(event_date_only, population_over_50k=True)
+        for obl in result["obligations"]:
+            if obl["basis"] == "28 CFR 35.160":
+                deadline_35160 = obl["deadline"]
+                break
+        meeting_dt = datetime(2026, 9, 8, 0, 0, tzinfo=timezone.utc)
+        deadline_dt = datetime.fromisoformat(deadline_35160)
+        assert deadline_dt < meeting_dt, f"35.160 deadline {deadline_dt} must be before meeting {meeting_dt}"
+
 
 # ---------------------------------------------------------------------------
 # verify_fulfillment
