@@ -580,7 +580,9 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
     decisions = decisions or {}
     actions = actions or {}
 
-    live = [c for c in cases if c.get("state") not in ("CANCELLED",)]
+    # Docket shows only active cases — CLOSED belongs in case files, not on a
+    # chart whose axis is "time remaining". CANCELLED cases are also excluded.
+    live = [c for c in cases if c.get("state") not in ("CANCELLED", "CLOSED")]
     order = {"AWAITING_DECISION": 0, "AWAITING_PROVIDER": 1, "NEW": 2,
              "COORDINATING": 2, "VERIFYING": 3, "VERIFIED": 4, "CLOSED": 5, "CANCELLED": 6}
 
@@ -589,6 +591,7 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
     jurisdiction_count = len(jurisdictions)
 
     def sort_key(c):
+        """Sort by time-to-deadline ascending: most overdue first, then soonest."""
         o = _notice_obl(c) or {}
         d = _parse(o.get("deadline"))
         return (d or _now() + timedelta(days=3650), order.get(str(c.get("state")), 9))
