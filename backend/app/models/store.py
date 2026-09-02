@@ -39,6 +39,29 @@ def _hash(data: Any) -> str:
     return "sha256:" + hashlib.sha256(json.dumps(data, default=str).encode()).hexdigest()[:16]
 
 
+def _chained_hash(
+    prev_hash: str | None,
+    case_id: str | None,
+    tool_name: str,
+    created_at: str,
+    payload: Any,
+) -> str:
+    """Create a tamper-evident hash that chains to the previous action.
+
+    The digest covers case_id, tool_name, created_at, and payload — so the
+    same payload in different contexts produces different hashes. Chaining
+    over the previous action's hash makes substitution detectable.
+    """
+    digest_input = {
+        "prev": prev_hash or "genesis",
+        "case_id": case_id,
+        "tool_name": tool_name,
+        "created_at": created_at,
+        "payload": payload,
+    }
+    return "sha256:" + hashlib.sha256(json.dumps(digest_input, default=str).encode()).hexdigest()[:16]
+
+
 def _uuid() -> str:
     return str(uuid.uuid4())[:8]
 
@@ -132,6 +155,19 @@ class Store:
 
     # --- Audit ---
 
+    def _get_previous_action_hash(self, case_id: str | None) -> str | None:
+        """Get the output_hash of the most recent action for a case.
+
+        Returns None if no previous action exists (genesis).
+        """
+        with self._lock:
+            matching = [a for a in self._actions if a.case_id == case_id]
+            if matching:
+                # Sort by created_at descending and return the most recent
+                matching.sort(key=lambda a: a.created_at, reverse=True)
+                return matching[0].output_hash
+            return None
+
     def record_action(
         self,
         tool_name: str,
@@ -142,16 +178,30 @@ class Store:
         idempotency_key: str | None = None,
         case_id: str | None = None,
     ) -> AgentAction:
+        now = _now()
+
+        # Get the previous action's hash for chaining (tamper-evident)
+        prev_hash = self._get_previous_action_hash(case_id)
+
+        # Create chained hash that covers case_id, tool_name, created_at, and payload
+        chained_output_hash = _chained_hash(
+            prev_hash=prev_hash,
+            case_id=case_id,
+            tool_name=tool_name,
+            created_at=now.isoformat(),
+            payload=output_data,
+        )
+
         action = AgentAction(
             action_id=f"act_{_uuid()}",
             tool_name=tool_name,
             idempotency_key=idempotency_key,
             case_id=case_id,
             input_hash=_hash(input_data),
-            output_hash=_hash(output_data),
+            output_hash=chained_output_hash,
             success=success,
             error_code=error_code,
-            created_at=_now(),
+            created_at=now,
         )
         with self._lock:
             self._actions.append(action)

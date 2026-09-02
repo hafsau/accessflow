@@ -12,6 +12,7 @@ Provider simulation is an operator action, not an agent action.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import uuid
@@ -22,6 +23,46 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from . import render
+
+
+def _hash(data: Any) -> str:
+    return "sha256:" + hashlib.sha256(json.dumps(data, default=str).encode()).hexdigest()[:16]
+
+
+def _chained_hash(
+    prev_hash: str | None,
+    case_id: str | None,
+    tool_name: str,
+    created_at: str,
+    payload: Any,
+) -> str:
+    """Create a tamper-evident hash that chains to the previous action."""
+    digest_input = {
+        "prev": prev_hash or "genesis",
+        "case_id": case_id,
+        "tool_name": tool_name,
+        "created_at": created_at,
+        "payload": payload,
+    }
+    return "sha256:" + hashlib.sha256(json.dumps(digest_input, default=str).encode()).hexdigest()[:16]
+
+
+def _get_previous_action_hash(table: Any, case_id: str) -> str | None:
+    """Get the output_hash of the most recent action for a case."""
+    response = table.query(
+        KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
+        ExpressionAttributeValues={
+            ":pk": f"CASE#{case_id}",
+            ":sk": "ACTION#",
+        },
+        ScanIndexForward=False,  # Most recent first
+        Limit=1,
+    )
+    items = response.get("Items", [])
+    if items:
+        data = json.loads(items[0]["data"]) if isinstance(items[0].get("data"), str) else items[0].get("data", {})
+        return data.get("output_hash")
+    return None
 
 # DynamoDB table
 CORE_TABLE = os.getenv("CORE_TABLE", "accessflow-core")
@@ -323,14 +364,34 @@ def _simulate_provider_response(request_id: str, response_type: str = "CONFIRMED
     # Record this as an operator action (not an agent action)
     action_id = f"act_{uuid.uuid4().hex[:8]}"
     case_id = request_data.get("case_id")
+
+    # Build input/output for hashing
+    input_data = {"request_id": request_id, "response_type": response_type}
+    output_data = {"ok": True, "request_id": request_id, "status": response_type, "simulated": True}
+
+    # Get previous action hash for chaining (tamper-evident)
+    prev_hash = _get_previous_action_hash(table, case_id)
+    chained_output_hash = _chained_hash(
+        prev_hash=prev_hash,
+        case_id=case_id,
+        tool_name="simulate_provider_response",
+        created_at=now,
+        payload=output_data,
+    )
+
     action_data = {
         "action_id": action_id,
         "tool_name": "simulate_provider_response",
+        "idempotency_key": None,
+        "case_id": case_id,
+        "input_hash": _hash(input_data),
+        "output_hash": chained_output_hash,
+        "success": True,
+        "error_code": None,
         "operator_action": True,
         "simulated": True,
         "request_id": request_id,
         "response_type": response_type,
-        "case_id": case_id,
         "created_at": now,
     }
 
