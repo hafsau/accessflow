@@ -59,7 +59,29 @@ def _get_cases() -> list[dict[str, Any]]:
     # Sort by created_at descending (most recent first)
     cases.sort(key=lambda c: c.get("created_at", ""), reverse=True)
 
+    # Integrity check: no two live cases should share an event_id
+    _check_duplicate_event_ids(cases)
+
     return cases
+
+
+def _check_duplicate_event_ids(cases: list[dict[str, Any]]) -> None:
+    """Log a warning if any event_id appears in multiple non-CANCELLED cases.
+
+    This is a data integrity check — the product claim is one case per meeting.
+    """
+    from collections import Counter
+    import logging
+
+    live_cases = [c for c in cases if c.get("state") != "CANCELLED"]
+    event_counts = Counter(c.get("event_id") for c in live_cases)
+    duplicates = {k: v for k, v in event_counts.items() if v > 1}
+
+    if duplicates:
+        logging.warning(
+            f"DATA INTEGRITY: duplicate event_ids found in live cases: {duplicates}. "
+            "Each meeting should have exactly one case."
+        )
 
 
 def _get_case_decision(case_id: str) -> dict[str, Any] | None:
