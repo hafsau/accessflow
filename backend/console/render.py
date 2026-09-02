@@ -124,8 +124,8 @@ def deadline_phrase(raw: Any, fulfilled: bool = False) -> tuple[str, str]:
 CSS = """
 :root{
   --paper:#F5F2EB; --raised:#FFFEFA; --sunk:#EDE8DE;
-  --ink:#101317; --ink-2:#3E4650; --ink-3:#6E7783;
-  --rule:#DED7C8; --rule-2:#C2B9A6;
+  --ink:#101317; --ink-2:#3E4650; --ink-3:#606975;
+  --rule:#DED7C8; --rule-2:#C2B9A6; --mark:#8D8471;
   --green:#174A3D; --green-t:#E2EDE8;
   --amber:#8A5417; --amber-t:#F6EADA;
   --red:#8C2A18;   --red-t:#F7E2DD;
@@ -137,7 +137,7 @@ CSS = """
   :root{
     --paper:#0F1113; --raised:#161A1E; --sunk:#1C2126;
     --ink:#F2EFE8; --ink-2:#B6BDC6; --ink-3:#8B939D;
-    --rule:#282E34; --rule-2:#3B434B;
+    --rule:#282E34; --rule-2:#3B434B; --mark:#646C74;
     --green:#7CCBAF; --green-t:#12302A;
     --amber:#E0A768; --amber-t:#33240F;
     --red:#F2937F;   --red-t:#3B1913;
@@ -223,7 +223,7 @@ h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:1.55rem;
 
 /* the span from notice-deadline to meeting */
 .link{position:absolute;top:50%;transform:translateY(-50%);height:1px;
-  background:var(--rule-2);z-index:1}
+  background:var(--mark);z-index:1}
 .span{position:absolute;top:50%;transform:translateY(-50%);height:7px;
   border-radius:1px;z-index:1}
 .span.s-done{background:var(--green);border:1px solid var(--green)}
@@ -231,12 +231,12 @@ h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:1.55rem;
   background:repeating-linear-gradient(135deg,var(--red-t) 0 3px,transparent 3px 6px)}
 .span.s-warn{border:1px dashed var(--amber);background:var(--amber-t)}
 .span.s-ok{border:1px solid var(--green);background:var(--green-t)}
-.span.s-idle{border:1px dotted var(--rule-2);background:transparent}
+.span.s-idle{border:1px dotted var(--mark);background:transparent}
 
 .pt{position:absolute;top:50%;z-index:2}
 .pt.notice{width:1px;height:20px;transform:translate(-50%,-50%)}
 .pt.notice.c-ok{background:var(--green)} .pt.notice.c-warn{background:var(--amber)}
-.pt.notice.c-bad{background:var(--red)}  .pt.notice.c-idle{background:var(--rule-2)}
+.pt.notice.c-bad{background:var(--red)}  .pt.notice.c-idle{background:var(--mark)}
 .pt.meet{width:11px;height:11px;transform:translate(-50%,-50%) rotate(45deg)}
 .pt.meet.c-ok{background:var(--green)} .pt.meet.c-warn{background:var(--amber)}
 .pt.meet.c-bad{background:var(--red)}  .pt.meet.c-idle{background:var(--ink-3)}
@@ -267,7 +267,7 @@ h2{font-family:"Newsreader",Georgia,serif;font-weight:500;font-size:1.55rem;
 /* ── case files ─────────────────────────────────────── */
 details{border:1px solid var(--rule);background:var(--raised);margin-bottom:.6rem}
 details[open]{border-color:var(--rule-2)}
-summary{padding:.85rem 1.1rem;cursor:pointer;display:flex;gap:1rem;
+summary{padding:.95rem 1.1rem;min-height:44px;cursor:pointer;display:flex;gap:1rem;
   align-items:baseline;justify-content:space-between;flex-wrap:wrap;list-style:none}
 summary::-webkit-details-marker{display:none}
 summary::before{content:"▸";color:var(--ink-3);margin-right:.5rem;
@@ -341,7 +341,7 @@ summary:hover{background:var(--sunk)}
 .op .m code{font-family:"IBM Plex Mono",monospace;font-size:.8rem}
 .acts{display:flex;gap:.55rem}
 button{font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;font-size:.8125rem;
-  font-weight:500;padding:.48rem .9rem;border:1px solid var(--rule-2);background:var(--paper);
+  font-weight:500;padding:.62rem 1rem;min-height:44px;border:1px solid var(--rule-2);background:var(--paper);
   color:var(--ink);cursor:pointer;border-radius:2px;
   transition:background .15s,border-color .15s,transform .1s}
 button:hover{background:var(--raised);border-color:var(--ink-2)}
@@ -584,6 +584,10 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
     order = {"AWAITING_DECISION": 0, "AWAITING_PROVIDER": 1, "NEW": 2,
              "COORDINATING": 2, "VERIFYING": 3, "VERIFIED": 4, "CLOSED": 5, "CANCELLED": 6}
 
+    # Derive jurisdiction count from the data (prefix of event_id before ":")
+    jurisdictions = {str(c.get("event_id", "")).split(":")[0] for c in cases if c.get("event_id")}
+    jurisdiction_count = len(jurisdictions)
+
     def sort_key(c):
         o = _notice_obl(c) or {}
         d = _parse(o.get("deadline"))
@@ -603,7 +607,7 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
     closed = sum(1 for c in cases if c.get("state") == "CLOSED")
 
     rows = "".join(_docket_row(c, events.get(str(c.get("event_id"))), lo, hi) for c in live) or \
-        '<div class="empty">No live cases. The poller checks six jurisdictions every 15 minutes.</div>'
+        f'<div class="empty">No live cases. The poller checks {jurisdiction_count} jurisdictions every 15 minutes.</div>'
     ticks = "".join(
         f'<div class="tick{" month" if first else ""}" style="left:{p:.3f}%">{esc(lbl)}</div>'
         for p, lbl, first in _ticks(lo, hi))
@@ -632,8 +636,8 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
         '<div class="empty">No provider requests awaiting a response.</div>'
 
     status = (
-        f'Tracking <b>{len(obls)}</b> statutory obligations across <b>{len(cases)}</b> meetings in six '
-        f'jurisdictions. '
+        f'Tracking <b>{len(obls)}</b> statutory obligations across <b>{len(cases)}</b> meetings in '
+        f'<b>{jurisdiction_count}</b> jurisdictions. '
         + (f'<b class="bad">{missed}</b> notice deadline{"s" if missed != 1 else ""} already missed. '
            if missed else '')
         + (f'<b>{soon}</b> fall due within a fortnight. ' if soon else '')
@@ -663,7 +667,7 @@ def page(cases, pending_requests=None, events=None, decisions=None, actions=None
     aids for that meeting — since 1991, no phase-in, no request needed. Every case below is a
     real meeting, its obligations, and the time left to meet them.</p>
   </div>
-  <div class="asof"><b>Live</b>{esc(_now().strftime('%-d %b %Y · %H:%M UTC'))}<br>6 jurisdictions · 15 min</div>
+  <div class="asof"><b>Live</b>{esc(_now().strftime('%-d %b %Y · %H:%M UTC'))}<br>{jurisdiction_count} jurisdictions · 15 min</div>
 </header>
 
 <p class="status">{status}</p>
